@@ -1,0 +1,418 @@
+
+import React, { useState } from 'react';
+import { Search, Plus, Upload, Download, Filter, MoreHorizontal, Bell, Calendar, User } from 'lucide-react';
+import PageHeader from '@/components/common/PageHeader';
+import Card from '@/components/ui/Card';
+import Button from '@/components/ui/Button';
+import Input from '@/components/ui/Input';
+import Select from '@/components/ui/Select';
+import Table from '@/components/ui/Table';
+import Pagination from '@/components/ui/Pagination';
+import StatusBadge from '@/components/ui/StatusBadge';
+import Tag from '@/components/ui/Tag';
+import Modal from '@/components/ui/Modal';
+import { mockEmployees } from '@/data/employees';
+import { employeeStatusMap, retireTypeMap, genderMap } from '@/types/employee';
+import { formatDate, calcAge, formatIdNumber } from '@/utils/date';
+
+function RetireList() {
+  const [searchText, setSearchText] = useState('');
+  const [statusFilter, setStatusFilter] = useState('all');
+  const [retireTypeFilter, setRetireTypeFilter] = useState('all');
+  const [currentPage, setCurrentPage] = useState(1);
+  const [selectedKeys, setSelectedKeys] = useState<string[]>([]);
+  const [showImportModal, setShowImportModal] = useState(false);
+  const [showDetailModal, setShowDetailModal] = useState(false);
+  const [selectedEmployee, setSelectedEmployee] = useState<typeof mockEmployees[0] | null>(null);
+  const pageSize = 10;
+
+  const filteredData = mockEmployees.filter((emp) => {
+    const matchSearch = emp.name.includes(searchText) || emp.idNumber.includes(searchText) || emp.department.includes(searchText);
+    const matchStatus = statusFilter === 'all' || emp.status === statusFilter;
+    const matchType = retireTypeFilter === 'all' || emp.retireType === retireTypeFilter;
+    return matchSearch && matchStatus && matchType;
+  });
+
+  const paginatedData = filteredData.slice((currentPage - 1) * pageSize, currentPage * pageSize);
+
+  const columns = [
+    {
+      key: 'name',
+      title: '姓名',
+      dataIndex: 'name' as const,
+      width: 140,
+      fixed: 'left' as const,
+      render: (_: any, record: typeof mockEmployees[0]) => (
+        <div className="flex items-center gap-3">
+          <div className="w-8 h-8 rounded-full bg-blue-100 text-blue-600 flex items-center justify-center text-sm font-medium">
+            {record.name.charAt(0)}
+          </div>
+          <div>
+            <p className="font-medium text-gray-800">{record.name}</p>
+            <p className="text-xs text-gray-400">{genderMap[record.gender]}</p>
+          </div>
+        </div>
+      ),
+    },
+    {
+      key: 'idNumber',
+      title: '身份证号',
+      dataIndex: 'idNumber' as const,
+      width: 180,
+      render: (val: string) => <span className="text-gray-600 font-mono text-xs">{formatIdNumber(val)}</span>,
+    },
+    {
+      key: 'department',
+      title: '部门',
+      dataIndex: 'department' as const,
+      width: 140,
+      render: (val: string) => <span className="text-gray-600">{val}</span>,
+    },
+    {
+      key: 'position',
+      title: '岗位',
+      dataIndex: 'position' as const,
+      width: 120,
+      render: (val: string) => <span className="text-gray-600">{val}</span>,
+    },
+    {
+      key: 'birthDate',
+      title: '出生日期',
+      dataIndex: 'birthDate' as const,
+      width: 120,
+      render: (val: string) => (
+        <div>
+          <p className="text-gray-600">{formatDate(val)}</p>
+          <p className="text-xs text-gray-400">{calcAge(val)} 岁</p>
+        </div>
+      ),
+    },
+    {
+      key: 'workYears',
+      title: '工龄',
+      dataIndex: 'workYears' as const,
+      width: 80,
+      align: 'center' as const,
+      render: (val: number) => <span className="text-gray-600">{val} 年</span>,
+    },
+    {
+      key: 'retireType',
+      title: '退休类型',
+      dataIndex: 'retireType' as const,
+      width: 100,
+      render: (val: string) => (
+        <Tag color={val === 'normal' ? 'blue' : val === 'special' ? 'orange' : val === 'early' ? 'purple' : 'red'} size="sm">
+          {retireTypeMap[val as keyof typeof retireTypeMap]}
+        </Tag>
+      ),
+    },
+    {
+      key: 'status',
+      title: '办理状态',
+      dataIndex: 'status' as const,
+      width: 110,
+      render: (val: string) => <StatusBadge status={employeeStatusMap[val as keyof typeof employeeStatusMap]} size="sm" />,
+    },
+    {
+      key: 'action',
+      title: '操作',
+      width: 100,
+      fixed: 'right' as const,
+      render: (_: any, record: typeof mockEmployees[0]) => (
+        <div className="flex items-center gap-1">
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={(e) => {
+              e.stopPropagation();
+              setSelectedEmployee(record);
+              setShowDetailModal(true);
+            }}
+          >
+            详情
+          </Button>
+          <button className="p-1 text-gray-400 hover:text-gray-600 rounded">
+            <MoreHorizontal size={16} />
+          </button>
+        </div>
+      ),
+    },
+  ];
+
+  const handleViewDetail = (emp: typeof mockEmployees[0]) => {
+    setSelectedEmployee(emp);
+    setShowDetailModal(true);
+  };
+
+  return (
+    <div className="space-y-4">
+      <PageHeader
+        title="退休名单"
+        description="管理待退休人员名单，支持批量导入、到龄提醒和批次管理"
+        extra={
+          <div className="flex items-center gap-2">
+            <Button variant="outline" icon={<Download size={16} />}>导出</Button>
+            <Button variant="outline" icon={<Upload size={16} />} onClick={() => setShowImportModal(true)}>批量导入</Button>
+            <Button icon={<Plus size={16} />}>新增人员</Button>
+          </div>
+        }
+      />
+
+      {/* 统计卡片 */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+        <Card padding="sm" className="border-l-4 border-l-blue-500">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-sm text-gray-500">待退休总人数</p>
+              <p className="text-2xl font-bold text-gray-900 mt-1">{mockEmployees.length}</p>
+            </div>
+            <div className="w-10 h-10 rounded-full bg-blue-50 flex items-center justify-center text-blue-600">
+              <User size={20} />
+            </div>
+          </div>
+        </Card>
+        <Card padding="sm" className="border-l-4 border-l-amber-500">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-sm text-gray-500">本月到龄</p>
+              <p className="text-2xl font-bold text-gray-900 mt-1">5</p>
+            </div>
+            <div className="w-10 h-10 rounded-full bg-amber-50 flex items-center justify-center text-amber-600">
+              <Calendar size={20} />
+            </div>
+          </div>
+        </Card>
+        <Card padding="sm" className="border-l-4 border-l-emerald-500">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-sm text-gray-500">已完成</p>
+              <p className="text-2xl font-bold text-gray-900 mt-1">{mockEmployees.filter(e => e.status === 'done').length}</p>
+            </div>
+            <div className="w-10 h-10 rounded-full bg-emerald-50 flex items-center justify-center text-emerald-600">
+              <Bell size={20} />
+            </div>
+          </div>
+        </Card>
+        <Card padding="sm" className="border-l-4 border-l-red-500">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-sm text-gray-500">紧急待办</p>
+              <p className="text-2xl font-bold text-gray-900 mt-1">3</p>
+            </div>
+            <div className="w-10 h-10 rounded-full bg-red-50 flex items-center justify-center text-red-600">
+              <Bell size={20} />
+            </div>
+          </div>
+        </Card>
+      </div>
+
+      {/* 筛选区 */}
+      <Card padding="sm">
+        <div className="flex flex-wrap items-center gap-4">
+          <div className="flex-1 min-w-[200px]">
+            <Input
+              placeholder="搜索姓名、身份证号、部门..."
+              value={searchText}
+              onChange={(e) => setSearchText(e.target.value)}
+              leftIcon={<Search size={16} />}
+            />
+          </div>
+          <div className="w-36">
+            <Select
+              value={statusFilter}
+              onChange={(e) => setStatusFilter(e.target.value)}
+              options={[
+                { value: 'all', label: '全部状态' },
+                { value: 'pending', label: '待办理' },
+                { value: 'checking', label: '核对中' },
+                { value: 'material', label: '材料收集中' },
+                { value: 'declaring', label: '申报中' },
+                { value: 'done', label: '已完成' },
+                { value: 'rejected', label: '已退回' },
+              ]}
+            />
+          </div>
+          <div className="w-36">
+            <Select
+              value={retireTypeFilter}
+              onChange={(e) => setRetireTypeFilter(e.target.value)}
+              options={[
+                { value: 'all', label: '全部类型' },
+                { value: 'normal', label: '正常退休' },
+                { value: 'early', label: '提前退休' },
+                { value: 'special', label: '特殊工种' },
+                { value: 'illness', label: '病退' },
+              ]}
+            />
+          </div>
+          <Button variant="outline" icon={<Filter size={16} />}>更多筛选</Button>
+        </div>
+      </Card>
+
+      {/* 表格 */}
+      <Card padding="none">
+        <div className="px-5 py-3 border-b border-gray-100 flex items-center justify-between">
+          <div className="flex items-center gap-4">
+            <span className="text-sm text-gray-500">
+              共 <span className="font-medium text-gray-800">{filteredData.length}</span> 条记录
+              {selectedKeys.length > 0 && (
+                <span className="ml-2">已选 <span className="font-medium text-blue-600">{selectedKeys.length}</span> 条</span>
+              )}
+            </span>
+            {selectedKeys.length > 0 && (
+              <div className="flex items-center gap-2">
+                <Button size="sm" variant="outline">批量核对</Button>
+                <Button size="sm" variant="outline">批量推送</Button>
+                <Button size="sm" variant="outline">加入批次</Button>
+              </div>
+            )}
+          </div>
+          <Button size="sm" variant="ghost">刷新</Button>
+        </div>
+
+        <Table
+          columns={columns}
+          data={paginatedData}
+          rowKey="id"
+          selectable
+          selectedKeys={selectedKeys}
+          onSelectChange={setSelectedKeys}
+          onRowClick={handleViewDetail}
+        />
+
+        <div className="px-5 py-4 border-t border-gray-100">
+          <Pagination
+            current={currentPage}
+            pageSize={pageSize}
+            total={filteredData.length}
+            onChange={setCurrentPage}
+          />
+        </div>
+      </Card>
+
+      {/* 详情弹窗 */}
+      <Modal
+        open={showDetailModal}
+        onClose={() => setShowDetailModal(false)}
+        title="退休人员详情"
+        width={600}
+        footer={
+          <>
+            <Button variant="outline" onClick={() => setShowDetailModal(false)}>关闭</Button>
+            <Button>发起办理</Button>
+          </>
+        }
+      >
+        {selectedEmployee && (
+          <div className="space-y-6">
+            <div className="flex items-center gap-4 pb-4 border-b border-gray-100">
+              <div className="w-16 h-16 rounded-full bg-blue-100 text-blue-600 flex items-center justify-center text-2xl font-medium">
+                {selectedEmployee.name.charAt(0)}
+              </div>
+              <div className="flex-1">
+                <h3 className="text-lg font-semibold text-gray-900">{selectedEmployee.name}</h3>
+                <div className="flex items-center gap-3 mt-1">
+                  <StatusBadge status={employeeStatusMap[selectedEmployee.status]} />
+                  <Tag color={selectedEmployee.retireType === 'normal' ? 'blue' : 'orange'} size="sm">
+                    {retireTypeMap[selectedEmployee.retireType]}
+                  </Tag>
+                </div>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <p className="text-sm text-gray-500">身份证号</p>
+                <p className="text-sm text-gray-800 mt-1">{selectedEmployee.idNumber}</p>
+              </div>
+              <div>
+                <p className="text-sm text-gray-500">出生日期</p>
+                <p className="text-sm text-gray-800 mt-1">{formatDate(selectedEmployee.birthDate)}（{calcAge(selectedEmployee.birthDate)}岁）</p>
+              </div>
+              <div>
+                <p className="text-sm text-gray-500">所在部门</p>
+                <p className="text-sm text-gray-800 mt-1">{selectedEmployee.department}</p>
+              </div>
+              <div>
+                <p className="text-sm text-gray-500">现任岗位</p>
+                <p className="text-sm text-gray-800 mt-1">{selectedEmployee.position}</p>
+              </div>
+              <div>
+                <p className="text-sm text-gray-500">参加工作时间</p>
+                <p className="text-sm text-gray-800 mt-1">{formatDate(selectedEmployee.joinDate)}</p>
+              </div>
+              <div>
+                <p className="text-sm text-gray-500">工龄</p>
+                <p className="text-sm text-gray-800 mt-1">{selectedEmployee.workYears} 年</p>
+              </div>
+              <div>
+                <p className="text-sm text-gray-500">联系电话</p>
+                <p className="text-sm text-gray-800 mt-1">{selectedEmployee.phone || '-'}</p>
+              </div>
+              <div>
+                <p className="text-sm text-gray-500">家庭住址</p>
+                <p className="text-sm text-gray-800 mt-1">{selectedEmployee.address || '-'}</p>
+              </div>
+            </div>
+
+            <div className="pt-4 border-t border-gray-100">
+              <h4 className="text-sm font-medium text-gray-800 mb-3">办理进度</h4>
+              <div className="relative">
+                <div className="absolute left-3 top-0 bottom-0 w-px bg-gray-200" />
+                {['名单确认', '档案核对', '材料收集', '批量申报', '办理完成'].map((step, idx) => {
+                  const statuses = ['pending', 'checking', 'material', 'declaring', 'done'];
+                  const currentIdx = statuses.indexOf(selectedEmployee.status);
+                  const isDone = currentIdx > idx || selectedEmployee.status === 'done';
+                  const isCurrent = currentIdx === idx;
+                  return (
+                    <div key={step} className="flex items-start gap-3 pb-4 last:pb-0">
+                      <div className={`w-6 h-6 rounded-full flex items-center justify-center flex-shrink-0 z-10 ${
+                        isDone ? 'bg-emerald-500 text-white' : isCurrent ? 'bg-blue-500 text-white' : 'bg-gray-200 text-gray-400'
+                      }`}>
+                        <span className="text-xs font-medium">{idx + 1}</span>
+                      </div>
+                      <div>
+                        <p className={`text-sm font-medium ${isDone || isCurrent ? 'text-gray-800' : 'text-gray-400'}`}>
+                          {step}
+                        </p>
+                        {isCurrent && <p className="text-xs text-gray-500 mt-0.5">当前步骤</p>}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          </div>
+        )}
+      </Modal>
+
+      {/* 导入弹窗 */}
+      <Modal
+        open={showImportModal}
+        onClose={() => setShowImportModal(false)}
+        title="批量导入待退职工"
+        width={500}
+        footer={
+          <>
+            <Button variant="outline" onClick={() => setShowImportModal(false)}>取消</Button>
+            <Button>开始导入</Button>
+          </>
+        }
+      >
+        <div className="space-y-4">
+          <div className="p-4 border-2 border-dashed border-gray-200 rounded-lg text-center hover:border-blue-400 transition-colors cursor-pointer">
+            <Upload size={40} className="mx-auto text-gray-400 mb-2" />
+            <p className="text-sm text-gray-600">点击上传或拖拽文件到此处</p>
+            <p className="text-xs text-gray-400 mt-1">支持 .xlsx, .xls 格式，最大 10MB</p>
+          </div>
+          <div className="flex items-center justify-between text-sm">
+            <a href="#" className="text-blue-600 hover:text-blue-700">下载导入模板</a>
+            <span className="text-gray-400">上次导入：2024-05-20</span>
+          </div>
+        </div>
+      </Modal>
+    </div>
+  );
+}
+
+export default RetireList;
