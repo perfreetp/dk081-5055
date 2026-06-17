@@ -1,5 +1,5 @@
 
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { Search, Check, X, AlertTriangle, ChevronRight, FileCheck, RefreshCw } from 'lucide-react';
 import PageHeader from '@/components/common/PageHeader';
 import Card from '@/components/ui/Card';
@@ -11,37 +11,76 @@ import Pagination from '@/components/ui/Pagination';
 import StatusBadge from '@/components/ui/StatusBadge';
 import Tag from '@/components/ui/Tag';
 import Modal from '@/components/ui/Modal';
-import { mockArchiveChecks } from '@/data/archiveChecks';
+import { useAppStore } from '@/store/useAppStore';
+import type { ArchiveCheck } from '@/types/archive';
 import { archiveCheckStatusMap } from '@/types/archive';
 import { formatDate } from '@/utils/date';
 
 function ArchiveCheck() {
+  const archiveChecks = useAppStore((state) => state.archiveChecks);
+  const startArchiveCheck = useAppStore((state) => state.startArchiveCheck);
+  const passArchiveCheck = useAppStore((state) => state.passArchiveCheck);
+  const rejectArchiveCheck = useAppStore((state) => state.rejectArchiveCheck);
+
   const [searchText, setSearchText] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
   const [currentPage, setCurrentPage] = useState(1);
   const [showDetailModal, setShowDetailModal] = useState(false);
-  const [selectedCheck, setSelectedCheck] = useState<typeof mockArchiveChecks[0] | null>(null);
+  const [showRejectModal, setShowRejectModal] = useState(false);
+  const [selectedCheckId, setSelectedCheckId] = useState<string | null>(null);
+  const [rejectRemark, setRejectRemark] = useState('');
   const pageSize = 10;
 
-  const filteredData = mockArchiveChecks.filter((item) => {
+  const selectedCheck = useMemo(
+    () => archiveChecks.find((c) => c.id === selectedCheckId) || null,
+    [archiveChecks, selectedCheckId]
+  );
+
+  const filteredData = useMemo(() => archiveChecks.filter((item) => {
     const matchSearch = item.employeeName.includes(searchText);
     const matchStatus = statusFilter === 'all' || item.status === statusFilter;
     return matchSearch && matchStatus;
-  });
+  }), [archiveChecks, searchText, statusFilter]);
 
-  const paginatedData = filteredData.slice((currentPage - 1) * pageSize, currentPage * pageSize);
+  const paginatedData = useMemo(
+    () => filteredData.slice((currentPage - 1) * pageSize, currentPage * pageSize),
+    [filteredData, currentPage, pageSize]
+  );
 
-  const stats = {
-    total: mockArchiveChecks.length,
-    pending: mockArchiveChecks.filter(i => i.status === 'pending').length,
-    checking: mockArchiveChecks.filter(i => i.status === 'checking').length,
-    passed: mockArchiveChecks.filter(i => i.status === 'passed').length,
-    rejected: mockArchiveChecks.filter(i => i.status === 'rejected').length,
+  const stats = useMemo(() => ({
+    total: archiveChecks.length,
+    pending: archiveChecks.filter(i => i.status === 'pending').length,
+    checking: archiveChecks.filter(i => i.status === 'checking').length,
+    passed: archiveChecks.filter(i => i.status === 'passed').length,
+    rejected: archiveChecks.filter(i => i.status === 'rejected').length,
+  }), [archiveChecks]);
+
+  const handleViewDetail = (item: ArchiveCheck) => {
+    setSelectedCheckId(item.id);
+    setShowDetailModal(true);
   };
 
-  const handleViewDetail = (item: typeof mockArchiveChecks[0]) => {
-    setSelectedCheck(item);
-    setShowDetailModal(true);
+  const handleStartCheck = (item: ArchiveCheck) => {
+    startArchiveCheck(item.id);
+  };
+
+  const handlePassCheck = () => {
+    if (selectedCheckId) {
+      passArchiveCheck(selectedCheckId);
+    }
+  };
+
+  const handleRejectCheck = () => {
+    if (selectedCheckId && rejectRemark.trim()) {
+      rejectArchiveCheck(selectedCheckId, rejectRemark);
+      setShowRejectModal(false);
+      setRejectRemark('');
+    }
+  };
+
+  const openRejectModal = () => {
+    setRejectRemark('');
+    setShowRejectModal(true);
   };
 
   const columns = [
@@ -51,7 +90,7 @@ function ArchiveCheck() {
       dataIndex: 'employeeName' as const,
       width: 120,
       fixed: 'left' as const,
-      render: (val: string, record: typeof mockArchiveChecks[0]) => (
+      render: (val: string, record: ArchiveCheck) => (
         <div className="flex items-center gap-3">
           <div className="w-8 h-8 rounded-full bg-blue-100 text-blue-600 flex items-center justify-center text-sm font-medium">
             {val.charAt(0)}
@@ -64,7 +103,7 @@ function ArchiveCheck() {
       key: 'positionMatch',
       title: '岗位信息',
       width: 140,
-      render: (_: any, record: typeof mockArchiveChecks[0]) => (
+      render: (_: any, record: ArchiveCheck) => (
         <div className="flex items-center gap-2">
           {record.positionInfo.match ? (
             <span className="text-emerald-600"><Check size={16} /></span>
@@ -81,7 +120,7 @@ function ArchiveCheck() {
       key: 'workYearsMatch',
       title: '工龄信息',
       width: 140,
-      render: (_: any, record: typeof mockArchiveChecks[0]) => (
+      render: (_: any, record: ArchiveCheck) => (
         <div className="flex items-center gap-2">
           {record.workYearsInfo.match ? (
             <span className="text-emerald-600"><Check size={16} /></span>
@@ -98,7 +137,7 @@ function ArchiveCheck() {
       key: 'socialSecurityMatch',
       title: '社保信息',
       width: 140,
-      render: (_: any, record: typeof mockArchiveChecks[0]) => (
+      render: (_: any, record: ArchiveCheck) => (
         <div className="flex items-center gap-2">
           {record.socialSecurityInfo.match ? (
             <span className="text-emerald-600"><Check size={16} /></span>
@@ -139,16 +178,21 @@ function ArchiveCheck() {
     {
       key: 'action',
       title: '操作',
-      width: 120,
+      width: 140,
       fixed: 'right' as const,
-      render: (_: any, record: typeof mockArchiveChecks[0]) => (
+      render: (_: any, record: ArchiveCheck) => (
         <div className="flex items-center gap-1">
           <Button variant="ghost" size="sm" onClick={(e) => { e.stopPropagation(); handleViewDetail(record); }}>
             查看
           </Button>
           {record.status === 'pending' && (
-            <Button variant="outline" size="sm" onClick={(e) => { e.stopPropagation(); }}>
+            <Button variant="outline" size="sm" onClick={(e) => { e.stopPropagation(); handleStartCheck(record); }}>
               发起核对
+            </Button>
+          )}
+          {record.status === 'checking' && (
+            <Button variant="outline" size="sm" onClick={(e) => { e.stopPropagation(); handleViewDetail(record); }}>
+              处理
             </Button>
           )}
         </div>
@@ -259,12 +303,15 @@ function ArchiveCheck() {
             <Button variant="outline" onClick={() => setShowDetailModal(false)}>关闭</Button>
             {selectedCheck?.status === 'checking' && (
               <>
-                <Button variant="outline" onClick={() => {}}>退回修改</Button>
-                <Button>确认通过</Button>
+                <Button variant="outline" onClick={openRejectModal}>退回修改</Button>
+                <Button onClick={handlePassCheck}>确认通过</Button>
               </>
             )}
             {selectedCheck?.status === 'pending' && (
-              <Button>发起核对</Button>
+              <Button onClick={() => handleStartCheck(selectedCheck)}>发起核对</Button>
+            )}
+            {selectedCheck?.status === 'rejected' && (
+              <Button onClick={() => handleStartCheck(selectedCheck)}>重新核对</Button>
             )}
           </>
         }
@@ -385,6 +432,44 @@ function ArchiveCheck() {
             )}
           </div>
         )}
+      </Modal>
+
+      {/* 退回修改弹窗 */}
+      <Modal
+        open={showRejectModal}
+        onClose={() => setShowRejectModal(false)}
+        title="退回修改"
+        width={480}
+        footer={
+          <>
+            <Button variant="outline" onClick={() => setShowRejectModal(false)}>取消</Button>
+            <Button onClick={handleRejectCheck} disabled={!rejectRemark.trim()}>确认退回</Button>
+          </>
+        }
+      >
+        <div className="space-y-4">
+          <div className="p-4 bg-amber-50 rounded-lg border border-amber-200">
+            <div className="flex items-start gap-2">
+              <AlertTriangle size={20} className="text-amber-600 flex-shrink-0 mt-0.5" />
+              <div>
+                <p className="text-sm font-medium text-amber-800">退回提示</p>
+                <p className="text-sm text-amber-700 mt-1">
+                  退回后将通知相关人员修改档案信息，请填写退回原因。
+                </p>
+              </div>
+            </div>
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1.5">退回原因</label>
+            <textarea
+              className="w-full px-3 py-2 text-sm border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+              rows={4}
+              value={rejectRemark}
+              onChange={(e) => setRejectRemark(e.target.value)}
+              placeholder="请输入退回原因..."
+            />
+          </div>
+        </div>
       </Modal>
     </div>
   );

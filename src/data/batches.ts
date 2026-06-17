@@ -17,7 +17,7 @@ export const mockBatches: RetireBatch[] = [
     id: 'batch-202406',
     batchName: '2024年6月退休批次',
     month: '2024-06',
-    count: 4,
+    count: 5,
     status: 'processing',
     createTime: '2024-05-10 10:00:00',
     employeeIds: ['emp001', 'emp002', 'emp003', 'emp009', 'emp012'],

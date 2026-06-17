@@ -1,5 +1,5 @@
 
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { Search, Upload, FileText, Download, Clock, CheckCircle, AlertCircle, XCircle, Bell, Send, Eye, Edit2, Trash2, Plus } from 'lucide-react';
 import PageHeader from '@/components/common/PageHeader';
 import Card from '@/components/ui/Card';
@@ -12,12 +12,16 @@ import Pagination from '@/components/ui/Pagination';
 import StatusBadge from '@/components/ui/StatusBadge';
 import Tag from '@/components/ui/Tag';
 import Modal from '@/components/ui/Modal';
-import { mockMaterials, mockProofTemplates } from '@/data/materials';
-import { mockEmployees } from '@/data/employees';
+import { useAppStore } from '@/store/useAppStore';
+import type { ProofTemplate } from '@/types/material';
 import { materialStatusMap, materialTypeMap } from '@/types/material';
 import { formatDate } from '@/utils/date';
 
 function Material() {
+  const materials = useAppStore((state) => state.materials);
+  const proofTemplates = useAppStore((state) => state.proofTemplates);
+  const employees = useAppStore((state) => state.employees);
+
   const [activeTab, setActiveTab] = useState('list');
   const [searchText, setSearchText] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
@@ -25,37 +29,68 @@ function Material() {
   const [currentPage, setCurrentPage] = useState(1);
   const [showUploadModal, setShowUploadModal] = useState(false);
   const [showTemplateModal, setShowTemplateModal] = useState(false);
-  const [selectedTemplate, setSelectedTemplate] = useState<typeof mockProofTemplates[0] | null>(null);
+  const [selectedTemplate, setSelectedTemplate] = useState<ProofTemplate | null>(null);
   const pageSize = 10;
 
-  const employeeMaterialMap = mockEmployees.reduce((acc, emp) => {
-    const materials = mockMaterials.filter(m => m.employeeId === emp.id);
-    if (materials.length > 0) {
+  const employeeMaterialMap = useMemo(() => employees.reduce((acc, emp) => {
+    const empMaterials = materials.filter(m => m.employeeId === emp.id);
+    if (empMaterials.length > 0) {
       acc.push({
         ...emp,
-        materials,
-        totalCount: materials.length,
-        uploadedCount: materials.filter(m => m.status !== 'pending').length,
-        approvedCount: materials.filter(m => m.status === 'approved').length,
-        rejectedCount: materials.filter(m => m.status === 'rejected').length,
+        materials: empMaterials,
+        totalCount: empMaterials.length,
+        uploadedCount: empMaterials.filter(m => m.status !== 'pending').length,
+        approvedCount: empMaterials.filter(m => m.status === 'approved').length,
+        rejectedCount: empMaterials.filter(m => m.status === 'rejected').length,
       });
     }
     return acc;
-  }, [] as any[]);
+  }, [] as any[]), [employees, materials]);
 
-  const filteredData = employeeMaterialMap.filter((item: any) => {
+  const filteredData = useMemo(() => employeeMaterialMap.filter((item: any) => {
     const matchSearch = item.name.includes(searchText) || item.department.includes(searchText);
-    return matchSearch;
-  });
+    let matchStatus = true;
+    if (statusFilter === 'all') {
+      matchStatus = true;
+    } else if (statusFilter === 'rejected') {
+      matchStatus = item.rejectedCount > 0;
+    } else if (statusFilter === 'pending') {
+      matchStatus = item.uploadedCount === 0;
+    } else if (statusFilter === 'approved') {
+      matchStatus = item.approvedCount === item.totalCount;
+    } else if (statusFilter === 'uploaded') {
+      matchStatus = item.uploadedCount > 0 && item.approvedCount < item.totalCount && item.rejectedCount === 0;
+    }
 
-  const paginatedData = filteredData.slice((currentPage - 1) * pageSize, currentPage * pageSize);
+    let matchType = true;
+    if (typeFilter !== 'all') {
+      matchType = item.materials.some((m: any) => m.type === typeFilter);
+    }
+
+    return matchSearch && matchStatus && matchType;
+  }), [employeeMaterialMap, searchText, statusFilter, typeFilter]);
+
+  const handleStatusFilterChange = (value: string) => {
+    setStatusFilter(value);
+    setCurrentPage(1);
+  };
+
+  const handleTypeFilterChange = (value: string) => {
+    setTypeFilter(value);
+    setCurrentPage(1);
+  };
+
+  const paginatedData = useMemo(
+    () => filteredData.slice((currentPage - 1) * pageSize, currentPage * pageSize),
+    [filteredData, currentPage, pageSize]
+  );
 
   const tabs = [
     { key: 'list', label: '材料清单' },
     { key: 'templates', label: '证明模板' },
   ];
 
-  const handleViewTemplate = (tpl: typeof mockProofTemplates[0]) => {
+  const handleViewTemplate = (tpl: ProofTemplate) => {
     setSelectedTemplate(tpl);
     setShowTemplateModal(true);
   };
@@ -183,7 +218,7 @@ function Material() {
                 <div>
                   <p className="text-sm text-gray-500">待收集材料</p>
                   <p className="text-xl font-bold text-gray-900">
-                    {mockMaterials.filter(m => m.status === 'pending').length}
+                    {materials.filter(m => m.status === 'pending').length}
                   </p>
                 </div>
               </div>
@@ -196,7 +231,7 @@ function Material() {
                 <div>
                   <p className="text-sm text-gray-500">已通过</p>
                   <p className="text-xl font-bold text-emerald-600">
-                    {mockMaterials.filter(m => m.status === 'approved').length}
+                    {materials.filter(m => m.status === 'approved').length}
                   </p>
                 </div>
               </div>
@@ -209,7 +244,7 @@ function Material() {
                 <div>
                   <p className="text-sm text-gray-500">已退回</p>
                   <p className="text-xl font-bold text-red-600">
-                    {mockMaterials.filter(m => m.status === 'rejected').length}
+                    {materials.filter(m => m.status === 'rejected').length}
                   </p>
                 </div>
               </div>
@@ -222,7 +257,7 @@ function Material() {
                 <div>
                   <p className="text-sm text-gray-500">待审核</p>
                   <p className="text-xl font-bold text-amber-600">
-                    {mockMaterials.filter(m => m.status === 'uploaded').length}
+                    {materials.filter(m => m.status === 'uploaded').length}
                   </p>
                 </div>
               </div>
@@ -243,7 +278,7 @@ function Material() {
               <div className="w-36">
                 <Select
                   value={statusFilter}
-                  onChange={(e) => setStatusFilter(e.target.value)}
+                  onChange={(e) => handleStatusFilterChange(e.target.value)}
                   options={[
                     { value: 'all', label: '全部状态' },
                     { value: 'pending', label: '待上传' },
@@ -256,7 +291,7 @@ function Material() {
               <div className="w-36">
                 <Select
                   value={typeFilter}
-                  onChange={(e) => setTypeFilter(e.target.value)}
+                  onChange={(e) => handleTypeFilterChange(e.target.value)}
                   options={[
                     { value: 'all', label: '全部类型' },
                     { value: 'id', label: '身份证件' },
@@ -286,7 +321,7 @@ function Material() {
 
       {activeTab === 'templates' && (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-          {mockProofTemplates.map((tpl) => (
+          {proofTemplates.map((tpl) => (
             <Card key={tpl.id} hover className="cursor-pointer" onClick={() => handleViewTemplate(tpl)}>
               <div className="flex items-start gap-4">
                 <div className="w-12 h-12 rounded-lg bg-blue-50 text-blue-600 flex items-center justify-center flex-shrink-0">

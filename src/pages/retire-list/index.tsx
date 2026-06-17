@@ -1,6 +1,6 @@
 
-import React, { useState } from 'react';
-import { Search, Plus, Upload, Download, Filter, MoreHorizontal, Bell, Calendar, User } from 'lucide-react';
+import React, { useState, useMemo } from 'react';
+import { Search, Plus, Upload, Download, Filter, MoreHorizontal, Bell, Calendar, User, CheckCircle } from 'lucide-react';
 import PageHeader from '@/components/common/PageHeader';
 import Card from '@/components/ui/Card';
 import Button from '@/components/ui/Button';
@@ -11,11 +11,63 @@ import Pagination from '@/components/ui/Pagination';
 import StatusBadge from '@/components/ui/StatusBadge';
 import Tag from '@/components/ui/Tag';
 import Modal from '@/components/ui/Modal';
-import { mockEmployees } from '@/data/employees';
+import { useAppStore } from '@/store/useAppStore';
+import type { Employee } from '@/types/employee';
 import { employeeStatusMap, retireTypeMap, genderMap } from '@/types/employee';
 import { formatDate, calcAge, formatIdNumber } from '@/utils/date';
 
+const sampleImportData: Employee[] = [
+  {
+    id: `emp-${Date.now()}-1`,
+    name: '黄小明',
+    idNumber: '310113196508154321',
+    gender: 'male',
+    birthDate: '1965-08-15',
+    department: '技术研发部',
+    position: '工程师',
+    joinDate: '1988-09-01',
+    workYears: 36,
+    retireType: 'normal',
+    status: 'pending',
+    phone: '13900139001',
+    address: '上海市浦东新区张江路800号',
+  },
+  {
+    id: `emp-${Date.now()}-2`,
+    name: '林晓红',
+    idNumber: '310114197012205432',
+    gender: 'female',
+    birthDate: '1970-12-20',
+    department: '财务部',
+    position: '会计',
+    joinDate: '1992-04-15',
+    workYears: 32,
+    retireType: 'normal',
+    status: 'pending',
+    phone: '13900139002',
+    address: '上海市徐汇区漕河泾路900号',
+  },
+  {
+    id: `emp-${Date.now()}-3`,
+    name: '周建军',
+    idNumber: '310115196603086543',
+    gender: 'male',
+    birthDate: '1966-03-08',
+    department: '生产制造部',
+    position: '技师',
+    joinDate: '1987-07-01',
+    workYears: 37,
+    retireType: 'special',
+    status: 'pending',
+    phone: '13900139003',
+    address: '上海市宝山区共富路700号',
+  },
+];
+
 function RetireList() {
+  const employees = useAppStore((state) => state.employees);
+  const addEmployees = useAppStore((state) => state.addEmployees);
+
   const [searchText, setSearchText] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
   const [retireTypeFilter, setRetireTypeFilter] = useState('all');
@@ -23,17 +75,21 @@ function RetireList() {
   const [selectedKeys, setSelectedKeys] = useState<string[]>([]);
   const [showImportModal, setShowImportModal] = useState(false);
   const [showDetailModal, setShowDetailModal] = useState(false);
-  const [selectedEmployee, setSelectedEmployee] = useState<typeof mockEmployees[0] | null>(null);
+  const [selectedEmployee, setSelectedEmployee] = useState<Employee | null>(null);
+  const [importSuccess, setImportSuccess] = useState(false);
   const pageSize = 10;
 
-  const filteredData = mockEmployees.filter((emp) => {
+  const filteredData = useMemo(() => employees.filter((emp) => {
     const matchSearch = emp.name.includes(searchText) || emp.idNumber.includes(searchText) || emp.department.includes(searchText);
     const matchStatus = statusFilter === 'all' || emp.status === statusFilter;
     const matchType = retireTypeFilter === 'all' || emp.retireType === retireTypeFilter;
     return matchSearch && matchStatus && matchType;
-  });
+  }), [employees, searchText, statusFilter, retireTypeFilter]);
 
-  const paginatedData = filteredData.slice((currentPage - 1) * pageSize, currentPage * pageSize);
+  const paginatedData = useMemo(
+    () => filteredData.slice((currentPage - 1) * pageSize, currentPage * pageSize),
+    [filteredData, currentPage, pageSize]
+  );
 
   const columns = [
     {
@@ -42,7 +98,7 @@ function RetireList() {
       dataIndex: 'name' as const,
       width: 140,
       fixed: 'left' as const,
-      render: (_: any, record: typeof mockEmployees[0]) => (
+      render: (_: any, record: Employee) => (
         <div className="flex items-center gap-3">
           <div className="w-8 h-8 rounded-full bg-blue-100 text-blue-600 flex items-center justify-center text-sm font-medium">
             {record.name.charAt(0)}
@@ -118,7 +174,7 @@ function RetireList() {
       title: '操作',
       width: 100,
       fixed: 'right' as const,
-      render: (_: any, record: typeof mockEmployees[0]) => (
+      render: (_: any, record: Employee) => (
         <div className="flex items-center gap-1">
           <Button
             variant="ghost"
@@ -139,9 +195,21 @@ function RetireList() {
     },
   ];
 
-  const handleViewDetail = (emp: typeof mockEmployees[0]) => {
+  const handleViewDetail = (emp: Employee) => {
     setSelectedEmployee(emp);
     setShowDetailModal(true);
+  };
+
+  const handleImport = () => {
+    const newEmployees: Employee[] = sampleImportData.map(emp => ({
+      ...emp,
+      id: `emp-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+    }));
+    addEmployees(newEmployees);
+    setShowImportModal(false);
+    setCurrentPage(1);
+    setImportSuccess(true);
+    setTimeout(() => setImportSuccess(false), 3000);
   };
 
   return (
@@ -164,7 +232,7 @@ function RetireList() {
           <div className="flex items-center justify-between">
             <div>
               <p className="text-sm text-gray-500">待退休总人数</p>
-              <p className="text-2xl font-bold text-gray-900 mt-1">{mockEmployees.length}</p>
+              <p className="text-2xl font-bold text-gray-900 mt-1">{employees.length}</p>
             </div>
             <div className="w-10 h-10 rounded-full bg-blue-50 flex items-center justify-center text-blue-600">
               <User size={20} />
@@ -186,7 +254,7 @@ function RetireList() {
           <div className="flex items-center justify-between">
             <div>
               <p className="text-sm text-gray-500">已完成</p>
-              <p className="text-2xl font-bold text-gray-900 mt-1">{mockEmployees.filter(e => e.status === 'done').length}</p>
+              <p className="text-2xl font-bold text-gray-900 mt-1">{employees.filter(e => e.status === 'done').length}</p>
             </div>
             <div className="w-10 h-10 rounded-full bg-emerald-50 flex items-center justify-center text-emerald-600">
               <Bell size={20} />
@@ -391,23 +459,50 @@ function RetireList() {
         open={showImportModal}
         onClose={() => setShowImportModal(false)}
         title="批量导入待退职工"
-        width={500}
+        width={520}
         footer={
           <>
             <Button variant="outline" onClick={() => setShowImportModal(false)}>取消</Button>
-            <Button>开始导入</Button>
+            <Button onClick={handleImport}>开始导入</Button>
           </>
         }
       >
         <div className="space-y-4">
-          <div className="p-4 border-2 border-dashed border-gray-200 rounded-lg text-center hover:border-blue-400 transition-colors cursor-pointer">
-            <Upload size={40} className="mx-auto text-gray-400 mb-2" />
-            <p className="text-sm text-gray-600">点击上传或拖拽文件到此处</p>
-            <p className="text-xs text-gray-400 mt-1">支持 .xlsx, .xls 格式，最大 10MB</p>
+          <div className="p-4 border-2 border-dashed border-blue-300 bg-blue-50 rounded-lg text-center">
+            <CheckCircle size={36} className="mx-auto text-blue-500 mb-2" />
+            <p className="text-sm font-medium text-blue-700">待退职工名单.xlsx</p>
+            <p className="text-xs text-blue-500 mt-1">文件大小：24.5KB · 共 {sampleImportData.length} 条记录</p>
+          </div>
+          <div className="border border-gray-200 rounded-lg overflow-hidden">
+            <div className="px-3 py-2 bg-gray-50 border-b border-gray-200">
+              <p className="text-xs font-medium text-gray-600">数据预览（共 {sampleImportData.length} 条）</p>
+            </div>
+            <div className="max-h-48 overflow-y-auto">
+              <table className="w-full text-xs">
+                <thead className="bg-gray-50 sticky top-0">
+                  <tr>
+                    <th className="px-3 py-2 text-left font-medium text-gray-500">姓名</th>
+                    <th className="px-3 py-2 text-left font-medium text-gray-500">身份证号</th>
+                    <th className="px-3 py-2 text-left font-medium text-gray-500">部门</th>
+                    <th className="px-3 py-2 text-left font-medium text-gray-500">退休类型</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {sampleImportData.map((emp, idx) => (
+                    <tr key={idx} className="border-t border-gray-100">
+                      <td className="px-3 py-2 text-gray-800">{emp.name}</td>
+                      <td className="px-3 py-2 text-gray-600 font-mono">{emp.idNumber.slice(0, 10)}...</td>
+                      <td className="px-3 py-2 text-gray-600">{emp.department}</td>
+                      <td className="px-3 py-2 text-gray-600">{retireTypeMap[emp.retireType]}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           </div>
           <div className="flex items-center justify-between text-sm">
             <a href="#" className="text-blue-600 hover:text-blue-700">下载导入模板</a>
-            <span className="text-gray-400">上次导入：2024-05-20</span>
+            <span className="text-gray-400 text-xs">上次导入：2024-05-20</span>
           </div>
         </div>
       </Modal>

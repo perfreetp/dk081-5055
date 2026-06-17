@@ -1,5 +1,5 @@
 
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { Search, Send, Clock, CheckCircle, XCircle, FileText, Eye, ChevronRight, AlertTriangle, RotateCcw, Plus, Download } from 'lucide-react';
 import PageHeader from '@/components/common/PageHeader';
 import Card from '@/components/ui/Card';
@@ -9,39 +9,58 @@ import Select from '@/components/ui/Select';
 import StatusBadge from '@/components/ui/StatusBadge';
 import Tag from '@/components/ui/Tag';
 import Modal from '@/components/ui/Modal';
-import { mockBatches } from '@/data/batches';
-import { mockEmployees } from '@/data/employees';
+import { useAppStore } from '@/store/useAppStore';
+import type { RetireBatch } from '@/types/batch';
 import { batchStatusMap } from '@/types/batch';
 import { employeeStatusMap, retireTypeMap } from '@/types/employee';
 import { formatDate } from '@/utils/date';
 
 function Declaration() {
+  const batches = useAppStore((state) => state.batches);
+  const employees = useAppStore((state) => state.employees);
+  const submitBatch = useAppStore((state) => state.submitBatch);
+
   const [searchText, setSearchText] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
   const [showDetailModal, setShowDetailModal] = useState(false);
-  const [selectedBatch, setSelectedBatch] = useState<typeof mockBatches[0] | null>(null);
+  const [selectedBatchId, setSelectedBatchId] = useState<string | null>(null);
   const [showSubmitModal, setShowSubmitModal] = useState(false);
   const [activeTab, setActiveTab] = useState('info');
 
-  const filteredBatches = mockBatches.filter((batch) => {
+  const selectedBatch = useMemo(
+    () => batches.find((b) => b.id === selectedBatchId) || null,
+    [batches, selectedBatchId]
+  );
+
+  const filteredBatches = useMemo(() => batches.filter((batch) => {
     const matchSearch = batch.batchName.includes(searchText);
     const matchStatus = statusFilter === 'all' || batch.status === statusFilter;
     return matchSearch && matchStatus;
-  });
+  }), [batches, searchText, statusFilter]);
 
-  const handleViewDetail = (batch: typeof mockBatches[0]) => {
-    setSelectedBatch(batch);
+  const handleViewDetail = (batch: RetireBatch) => {
+    setSelectedBatchId(batch.id);
     setShowDetailModal(true);
+    setActiveTab('info');
   };
 
-  const handleSubmitBatch = (batch: typeof mockBatches[0]) => {
-    setSelectedBatch(batch);
+  const handleSubmitBatch = (batch: RetireBatch) => {
+    setSelectedBatchId(batch.id);
     setShowSubmitModal(true);
   };
 
-  const batchEmployees = selectedBatch
-    ? mockEmployees.filter((emp) => selectedBatch.employeeIds.includes(emp.id))
-    : [];
+  const confirmSubmitBatch = () => {
+    if (selectedBatchId) {
+      submitBatch(selectedBatchId);
+      setShowSubmitModal(false);
+    }
+  };
+
+  const batchEmployees = useMemo(() => selectedBatch
+    ? employees.filter((emp) => selectedBatch.employeeIds.includes(emp.id))
+    : [],
+    [selectedBatch, employees]
+  );
 
   const tabs = [
     { key: 'info', label: '批次信息' },
@@ -50,14 +69,16 @@ function Declaration() {
     { key: 'history', label: '流程记录' },
   ];
 
-  const statusCardData = [
-    { label: '全部批次', value: mockBatches.length, color: 'gray' },
-    { label: '草稿', value: mockBatches.filter(b => b.status === 'draft').length, color: 'gray' },
-    { label: '已提交', value: mockBatches.filter(b => b.status === 'submitted').length, color: 'blue' },
-    { label: '处理中', value: mockBatches.filter(b => b.status === 'processing').length, color: 'orange' },
-    { label: '已完成', value: mockBatches.filter(b => b.status === 'completed').length, color: 'green' },
-    { label: '已退回', value: mockBatches.filter(b => b.status === 'rejected').length, color: 'red' },
-  ];
+  const statusCardData = useMemo(() => [
+    { label: '全部批次', value: batches.length, color: 'gray' },
+    { label: '草稿', value: batches.filter(b => b.status === 'draft').length, color: 'gray' },
+    { label: '已提交', value: batches.filter(b => b.status === 'submitted').length, color: 'blue' },
+    { label: '处理中', value: batches.filter(b => b.status === 'processing').length, color: 'orange' },
+    { label: '已完成', value: batches.filter(b => b.status === 'completed').length, color: 'green' },
+    { label: '已退回', value: batches.filter(b => b.status === 'rejected').length, color: 'red' },
+  ], [batches]);
+
+  const getBatchCount = (batch: RetireBatch) => batch.employeeIds.length;
 
   return (
     <div className="space-y-4">
@@ -148,7 +169,7 @@ function Declaration() {
 
             <div className="flex items-center gap-6 mb-4">
               <div>
-                <p className="text-2xl font-bold text-gray-900">{batch.count}</p>
+                <p className="text-2xl font-bold text-gray-900">{getBatchCount(batch)}</p>
                 <p className="text-xs text-gray-500">申报人数</p>
               </div>
               {batch.submitTime && (
@@ -193,7 +214,7 @@ function Declaration() {
 
             <div className="flex items-center justify-between pt-3 border-t border-gray-100">
               <div className="flex -space-x-2">
-                {mockEmployees
+                {employees
                   .filter(e => batch.employeeIds.includes(e.id))
                   .slice(0, 4)
                   .map((emp) => (
@@ -205,9 +226,9 @@ function Declaration() {
                       {emp.name.charAt(0)}
                     </div>
                   ))}
-                {batch.count > 4 && (
+                {getBatchCount(batch) > 4 && (
                   <div className="w-7 h-7 rounded-full bg-gray-100 border-2 border-white text-gray-500 flex items-center justify-center text-xs">
-                    +{batch.count - 4}
+                    +{getBatchCount(batch) - 4}
                   </div>
                 )}
               </div>
@@ -303,7 +324,7 @@ function Declaration() {
                 </div>
                 <div>
                   <p className="text-sm text-gray-500">申报人数</p>
-                  <p className="text-sm text-gray-800 mt-1">{selectedBatch.count} 人</p>
+                  <p className="text-sm text-gray-800 mt-1">{selectedBatch.employeeIds.length} 人</p>
                 </div>
                 <div>
                   <p className="text-sm text-gray-500">创建时间</p>
@@ -356,7 +377,7 @@ function Declaration() {
                     <FileText size={20} className="text-gray-400" />
                     <div>
                       <p className="text-sm font-medium text-gray-800">单位退休证明</p>
-                      <p className="text-xs text-gray-500">共 {selectedBatch.count} 份</p>
+                      <p className="text-xs text-gray-500">共 {selectedBatch.employeeIds.length} 份</p>
                     </div>
                   </div>
                   <Button variant="outline" size="sm">预览</Button>
@@ -366,7 +387,7 @@ function Declaration() {
                     <FileText size={20} className="text-gray-400" />
                     <div>
                       <p className="text-sm font-medium text-gray-800">养老保险待遇申领表</p>
-                      <p className="text-xs text-gray-500">共 {selectedBatch.count} 份</p>
+                      <p className="text-xs text-gray-500">共 {selectedBatch.employeeIds.length} 份</p>
                     </div>
                   </div>
                   <Button variant="outline" size="sm">预览</Button>
@@ -425,7 +446,7 @@ function Declaration() {
         footer={
           <>
             <Button variant="outline" onClick={() => setShowSubmitModal(false)}>取消</Button>
-            <Button onClick={() => { setShowSubmitModal(false); }}>确认提交</Button>
+            <Button onClick={confirmSubmitBatch}>确认提交</Button>
           </>
         }
       >
@@ -449,7 +470,7 @@ function Declaration() {
             </div>
             <div className="flex justify-between text-sm">
               <span className="text-gray-500">申报人数</span>
-              <span className="text-gray-800 font-medium">{selectedBatch?.count} 人</span>
+              <span className="text-gray-800 font-medium">{selectedBatch?.employeeIds.length} 人</span>
             </div>
             <div className="flex justify-between text-sm">
               <span className="text-gray-500">材料完整性</span>
