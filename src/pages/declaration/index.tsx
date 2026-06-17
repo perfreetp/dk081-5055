@@ -13,6 +13,7 @@ import { useAppStore } from '@/store/useAppStore';
 import type { RetireBatch } from '@/types/batch';
 import { batchStatusMap } from '@/types/batch';
 import { employeeStatusMap, retireTypeMap } from '@/types/employee';
+import { resultStatusMap } from '@/types/archive';
 import { formatDate } from '@/utils/date';
 
 function Declaration() {
@@ -20,6 +21,9 @@ function Declaration() {
   const employees = useAppStore((state) => state.employees);
   const submitBatch = useAppStore((state) => state.submitBatch);
   const createBatch = useAppStore((state) => state.createBatch);
+  const updateBatchMembers = useAppStore((state) => state.updateBatchMembers);
+  const generateBatchResults = useAppStore((state) => state.generateBatchResults);
+  const declarationResults = useAppStore((state) => state.declarationResults);
 
   const [searchText, setSearchText] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
@@ -27,10 +31,14 @@ function Declaration() {
   const [selectedBatchId, setSelectedBatchId] = useState<string | null>(null);
   const [showSubmitModal, setShowSubmitModal] = useState(false);
   const [showCreateModal, setShowCreateModal] = useState(false);
+  const [showEditModal, setShowEditModal] = useState(false);
   const [activeTab, setActiveTab] = useState('info');
   const [newBatchName, setNewBatchName] = useState('');
   const [newBatchMonth, setNewBatchMonth] = useState('2024-09');
   const [selectedNewEmployeeIds, setSelectedNewEmployeeIds] = useState<string[]>([]);
+  const [editBatchName, setEditBatchName] = useState('');
+  const [editBatchMonth, setEditBatchMonth] = useState('');
+  const [editEmployeeIds, setEditEmployeeIds] = useState<string[]>([]);
 
   const selectedBatch = useMemo(
     () => batches.find((b) => b.id === selectedBatchId) || null,
@@ -67,10 +75,17 @@ function Declaration() {
     [selectedBatch, employees]
   );
 
+  const batchResults = useMemo(() => selectedBatch
+    ? declarationResults.filter((r) => r.declarationId === selectedBatch.id)
+    : [],
+    [selectedBatch, declarationResults]
+  );
+
   const tabs = [
     { key: 'info', label: '批次信息' },
     { key: 'employees', label: `申报人员 (${batchEmployees.length})` },
     { key: 'materials', label: '申报材料' },
+    { key: 'results', label: `办理结果 (${batchResults.length})` },
     { key: 'history', label: '流程记录' },
   ];
 
@@ -114,6 +129,36 @@ function Declaration() {
     setShowCreateModal(false);
     setSelectedBatchId(newBatch.id);
     setShowDetailModal(true);
+  };
+
+  const handleOpenEdit = (batch: RetireBatch) => {
+    setEditBatchName(batch.batchName);
+    setEditBatchMonth(batch.month);
+    setEditEmployeeIds([...batch.employeeIds]);
+    setSelectedBatchId(batch.id);
+    setShowEditModal(true);
+  };
+
+  const toggleEditEmployee = (id: string) => {
+    setEditEmployeeIds(prev =>
+      prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]
+    );
+  };
+
+  const handleSaveEdit = () => {
+    if (!selectedBatchId || !editBatchName.trim() || editEmployeeIds.length === 0) return;
+    updateBatchMembers(selectedBatchId, {
+      batchName: editBatchName.trim(),
+      month: editBatchMonth,
+      employeeIds: editEmployeeIds,
+    });
+    setShowEditModal(false);
+  };
+
+  const handleGenerateResults = () => {
+    if (selectedBatchId) {
+      generateBatchResults(selectedBatchId);
+    }
   };
 
   const months = [];
@@ -290,7 +335,7 @@ function Declaration() {
             {/* 操作按钮 */}
             {batch.status === 'draft' && (
               <div className="flex items-center gap-2 mt-3 pt-3 border-t border-gray-100">
-                <Button size="sm" variant="outline" className="flex-1">编辑</Button>
+                <Button size="sm" variant="outline" className="flex-1" onClick={(e) => { e.stopPropagation(); handleOpenEdit(batch); }}>编辑</Button>
                 <Button size="sm" className="flex-1" onClick={(e) => { e.stopPropagation(); handleSubmitBatch(batch); }}>
                   提交申报
                 </Button>
@@ -318,9 +363,15 @@ function Declaration() {
           <>
             <Button variant="outline" onClick={() => setShowDetailModal(false)}>关闭</Button>
             {selectedBatch?.status === 'draft' && (
-              <Button onClick={() => { setShowDetailModal(false); handleSubmitBatch(selectedBatch); }}>
-                提交申报
-              </Button>
+              <>
+                <Button variant="outline" onClick={() => handleOpenEdit(selectedBatch)}>编辑批次</Button>
+                <Button onClick={() => { setShowDetailModal(false); handleSubmitBatch(selectedBatch); }}>
+                  提交申报
+                </Button>
+              </>
+            )}
+            {(selectedBatch?.status === 'submitted' || selectedBatch?.status === 'processing') && (
+              <Button onClick={handleGenerateResults} icon={<FileText size={16} />}>模拟结果回传</Button>
             )}
             {selectedBatch?.status === 'rejected' && (
               <Button>修改后重报</Button>
@@ -452,6 +503,43 @@ function Declaration() {
                   </div>
                   <Button variant="outline" size="sm">查看</Button>
                 </div>
+              </div>
+            )}
+
+            {activeTab === 'results' && (
+              <div>
+                {batchResults.length === 0 ? (
+                  <div className="p-10 text-center">
+                    <FileText size={40} className="mx-auto text-gray-300 mb-2" />
+                    <p className="text-gray-400 text-sm">暂无办理结果</p>
+                    <p className="text-gray-400 text-xs mt-1">批次提交后可点击"模拟结果回传"生成结果</p>
+                  </div>
+                ) : (
+                  <div className="space-y-2">
+                    {batchResults.map((result) => (
+                      <div key={result.id} className="flex items-center justify-between p-3 border border-gray-100 rounded-lg hover:bg-gray-50">
+                        <div className="flex items-center gap-3">
+                          <div className="w-8 h-8 rounded-full bg-blue-100 text-blue-600 flex items-center justify-center text-xs font-medium">
+                            {result.employeeName.charAt(0)}
+                          </div>
+                          <div>
+                            <p className="text-sm font-medium text-gray-800">{result.employeeName}</p>
+                            <p className="text-xs text-gray-500">{result.department}</p>
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-3">
+                          {result.resultStatus === 'passed' && result.receiptName && (
+                            <span className="text-xs text-blue-600 flex items-center gap-1">
+                              <FileText size={12} />
+                              {result.receiptName}
+                            </span>
+                          )}
+                          <StatusBadge status={resultStatusMap[result.resultStatus]} size="sm" />
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
             )}
 
@@ -617,10 +705,9 @@ function Declaration() {
                       {pendingEmployees.map((emp) => (
                         <tr
                           key={emp.id}
-                          className={`border-t border-gray-100 cursor-pointer hover:bg-blue-50 transition-colors ${
-                            selectedNewEmployeeIds.includes(emp.id) ? 'bg-blue-50' : ''
+                          className={`border-t border-gray-100 transition-colors ${
+                            selectedNewEmployeeIds.includes(emp.id) ? 'bg-blue-50' : 'hover:bg-blue-50'
                           }`}
-                          onClick={() => toggleNewEmployee(emp.id)}
                         >
                           <td className="px-3 py-2">
                             <input
@@ -663,6 +750,140 @@ function Declaration() {
                 <span className="font-medium">已选 {selectedNewEmployeeIds.length} 人</span>
                 <span className="text-blue-600">，批次保存后可随时修改和提交</span>
               </div>
+            </div>
+          )}
+        </div>
+      </Modal>
+
+      {/* 编辑批次弹窗 */}
+      <Modal
+        open={showEditModal}
+        onClose={() => setShowEditModal(false)}
+        title="编辑批次"
+        width={720}
+        footer={
+          <>
+            <Button variant="outline" onClick={() => setShowEditModal(false)}>取消</Button>
+            <Button
+              onClick={handleSaveEdit}
+              disabled={!editBatchName.trim() || editEmployeeIds.length === 0}
+            >
+              保存修改
+            </Button>
+          </>
+        }
+      >
+        <div className="space-y-5">
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1.5">批次名称 <span className="text-red-500">*</span></label>
+              <Input
+                placeholder="如：2024年9月退休批次"
+                value={editBatchName}
+                onChange={(e) => setEditBatchName(e.target.value)}
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1.5">退休月份 <span className="text-red-500">*</span></label>
+              <Select
+                value={editBatchMonth}
+                onChange={(e) => setEditBatchMonth(e.target.value)}
+                options={months.map(m => ({ value: m.value, label: m.label }))}
+              />
+            </div>
+          </div>
+
+          <div>
+            <div className="flex items-center justify-between mb-2">
+              <label className="block text-sm font-medium text-gray-700">
+                批次人员名单 <span className="text-red-500">*</span>
+                <span className="ml-2 text-xs text-gray-400">
+                  当前 {editEmployeeIds.length} 人
+                </span>
+              </label>
+              <span className="text-xs text-gray-400">勾选/取消勾选可调整人员</span>
+            </div>
+            <div className="border border-gray-200 rounded-lg overflow-hidden">
+              <div className="max-h-80 overflow-y-auto">
+                {employees.length === 0 ? (
+                  <div className="p-10 text-center text-gray-400">
+                    暂无人员
+                  </div>
+                ) : (
+                  <table className="w-full text-sm">
+                    <thead className="bg-gray-50 sticky top-0">
+                      <tr>
+                        <th className="px-3 py-2 text-left w-10"></th>
+                        <th className="px-3 py-2 text-left font-medium text-gray-600">姓名</th>
+                        <th className="px-3 py-2 text-left font-medium text-gray-600">部门</th>
+                        <th className="px-3 py-2 text-left font-medium text-gray-600">岗位</th>
+                        <th className="px-3 py-2 text-left font-medium text-gray-600">状态</th>
+                        <th className="px-3 py-2 text-left font-medium text-gray-600">操作</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {employees.map((emp) => {
+                        const checked = editEmployeeIds.includes(emp.id);
+                        return (
+                          <tr
+                            key={emp.id}
+                            className={`border-t border-gray-100 ${checked ? 'bg-blue-50' : ''}`}
+                          >
+                            <td className="px-3 py-2">
+                              <input
+                                type="checkbox"
+                                checked={checked}
+                                onChange={() => toggleEditEmployee(emp.id)}
+                                className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                              />
+                            </td>
+                            <td className="px-3 py-2">
+                              <div className="flex items-center gap-2">
+                                <div className="w-7 h-7 rounded-full bg-blue-100 text-blue-600 flex items-center justify-center text-xs font-medium">
+                                  {emp.name.charAt(0)}
+                                </div>
+                                <span className="font-medium text-gray-800">{emp.name}</span>
+                              </div>
+                            </td>
+                            <td className="px-3 py-2 text-gray-600">{emp.department}</td>
+                            <td className="px-3 py-2 text-gray-600">{emp.position}</td>
+                            <td className="px-3 py-2">
+                              <StatusBadge status={employeeStatusMap[emp.status]} size="sm" />
+                            </td>
+                            <td className="px-3 py-2">
+                              {checked ? (
+                                <button
+                                  type="button"
+                                  className="text-xs text-red-600 hover:text-red-700"
+                                  onClick={() => toggleEditEmployee(emp.id)}
+                                >
+                                  移除
+                                </button>
+                              ) : (
+                                <button
+                                  type="button"
+                                  className="text-xs text-blue-600 hover:text-blue-700"
+                                  onClick={() => toggleEditEmployee(emp.id)}
+                                >
+                                  加入
+                                </button>
+                              )}
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                )}
+              </div>
+            </div>
+          </div>
+
+          {editEmployeeIds.length > 0 && (
+            <div className="p-3 bg-blue-50 rounded-lg border border-blue-100">
+              <p className="text-sm text-blue-700">
+                <span className="font-medium">保存后批次人数、详情人员、材料份数将同步更新为 {editEmployeeIds.length} 人</span>
+              </p>
             </div>
           )}
         </div>

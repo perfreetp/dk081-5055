@@ -22,6 +22,8 @@ function Material() {
   const proofTemplates = useAppStore((state) => state.proofTemplates);
   const employees = useAppStore((state) => state.employees);
   const uploadMaterial = useAppStore((state) => state.uploadMaterial);
+  const approveMaterial = useAppStore((state) => state.approveMaterial);
+  const rejectMaterial = useAppStore((state) => state.rejectMaterial);
 
   const [activeTab, setActiveTab] = useState('list');
   const [searchText, setSearchText] = useState('');
@@ -31,8 +33,11 @@ function Material() {
   const [showUploadModal, setShowUploadModal] = useState(false);
   const [showTemplateModal, setShowTemplateModal] = useState(false);
   const [showDetailModal, setShowDetailModal] = useState(false);
+  const [showRejectModal, setShowRejectModal] = useState(false);
   const [selectedTemplate, setSelectedTemplate] = useState<ProofTemplate | null>(null);
   const [selectedEmployeeId, setSelectedEmployeeId] = useState<string | null>(null);
+  const [rejectingMaterialId, setRejectingMaterialId] = useState<string | null>(null);
+  const [rejectRemark, setRejectRemark] = useState('');
   const pageSize = 10;
 
   const employeeMaterialMap = useMemo(() => employees.reduce((acc, emp) => {
@@ -111,6 +116,25 @@ function Material() {
   const handleUploadMaterial = (materialId: string, materialName: string) => {
     const fileName = `${materialName}_${Date.now()}.pdf`;
     uploadMaterial(materialId, fileName);
+  };
+
+  const handleApproveMaterial = (materialId: string) => {
+    approveMaterial(materialId);
+  };
+
+  const handleOpenRejectMaterial = (materialId: string) => {
+    setRejectingMaterialId(materialId);
+    setRejectRemark('');
+    setShowRejectModal(true);
+  };
+
+  const handleConfirmRejectMaterial = () => {
+    if (rejectingMaterialId && rejectRemark.trim()) {
+      rejectMaterial(rejectingMaterialId, rejectRemark.trim());
+      setShowRejectModal(false);
+      setRejectingMaterialId(null);
+      setRejectRemark('');
+    }
   };
 
   const columns = [
@@ -519,7 +543,25 @@ function Material() {
                           重新上传
                         </Button>
                       )}
-                      {(m.status === 'uploaded' || m.status === 'approved') && (
+                      {m.status === 'uploaded' && (
+                        <div className="flex items-center gap-2">
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="text-red-600 border-red-200 hover:bg-red-50"
+                            onClick={() => handleOpenRejectMaterial(m.id)}
+                          >
+                            退回
+                          </Button>
+                          <Button
+                            size="sm"
+                            onClick={() => handleApproveMaterial(m.id)}
+                          >
+                            通过
+                          </Button>
+                        </div>
+                      )}
+                      {m.status === 'approved' && (
                         <Button variant="ghost" size="sm" icon={<Eye size={14} />}>
                           预览
                         </Button>
@@ -531,6 +573,50 @@ function Material() {
             </div>
           </div>
         )}
+      </Modal>
+
+      {/* 材料退回弹窗 */}
+      <Modal
+        open={showRejectModal}
+        onClose={() => setShowRejectModal(false)}
+        title="退回材料"
+        width={480}
+        footer={
+          <>
+            <Button variant="outline" onClick={() => setShowRejectModal(false)}>取消</Button>
+            <Button
+              variant="danger"
+              onClick={handleConfirmRejectMaterial}
+              disabled={!rejectRemark.trim()}
+            >
+              确认退回
+            </Button>
+          </>
+        }
+      >
+        <div className="space-y-4">
+          <div className="p-4 bg-amber-50 rounded-lg border border-amber-200">
+            <div className="flex items-start gap-2">
+              <AlertCircle size={20} className="text-amber-600 flex-shrink-0 mt-0.5" />
+              <div>
+                <p className="text-sm font-medium text-amber-800">退回提示</p>
+                <p className="text-sm text-amber-700 mt-1">
+                  退回后将通知相关人员重新上传材料，请填写退回原因。
+                </p>
+              </div>
+            </div>
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1.5">退回原因 <span className="text-red-500">*</span></label>
+            <textarea
+              className="w-full px-3 py-2 text-sm border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+              rows={4}
+              value={rejectRemark}
+              onChange={(e) => setRejectRemark(e.target.value)}
+              placeholder="请输入退回原因，如：材料不清晰、信息有误等..."
+            />
+          </div>
+        </div>
       </Modal>
     </div>
   );

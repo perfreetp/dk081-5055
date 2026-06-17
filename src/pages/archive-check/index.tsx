@@ -195,6 +195,11 @@ function ArchiveCheck() {
               处理
             </Button>
           )}
+          {record.status === 'rejected' && (
+            <Button variant="outline" size="sm" onClick={(e) => { e.stopPropagation(); handleStartCheck(record); }}>
+              重新核对
+            </Button>
+          )}
         </div>
       ),
     },

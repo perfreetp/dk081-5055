@@ -1,5 +1,5 @@
 
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { Search, Download, CheckCircle, XCircle, Clock, FileText, Eye, RefreshCw, AlertTriangle, Inbox, ArrowDownCircle } from 'lucide-react';
 import PageHeader from '@/components/common/PageHeader';
 import Card from '@/components/ui/Card';
@@ -11,38 +11,60 @@ import Pagination from '@/components/ui/Pagination';
 import StatusBadge from '@/components/ui/StatusBadge';
 import Tag from '@/components/ui/Tag';
 import Modal from '@/components/ui/Modal';
-import { mockDeclarationResults } from '@/data/archiveChecks';
+import { useAppStore } from '@/store/useAppStore';
+import type { DeclarationResult } from '@/types/archive';
 import { resultStatusMap } from '@/types/archive';
 import { formatDate } from '@/utils/date';
 
 function Result() {
+  const declarationResults = useAppStore((state) => state.declarationResults);
+  const batches = useAppStore((state) => state.batches);
+  const processBatchResult = useAppStore((state) => state.processBatchResult);
+
   const [searchText, setSearchText] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
   const [currentPage, setCurrentPage] = useState(1);
   const [selectedKeys, setSelectedKeys] = useState<string[]>([]);
   const [showDetailModal, setShowDetailModal] = useState(false);
-  const [selectedResult, setSelectedResult] = useState<typeof mockDeclarationResults[0] | null>(null);
+  const [selectedResultId, setSelectedResultId] = useState<string | null>(null);
   const [showReceiptModal, setShowReceiptModal] = useState(false);
   const pageSize = 10;
 
-  const filteredData = mockDeclarationResults.filter((item) => {
+  const selectedResult = useMemo(
+    () => declarationResults.find(r => r.id === selectedResultId) || null,
+    [declarationResults, selectedResultId]
+  );
+
+  const filteredData = useMemo(() => declarationResults.filter((item) => {
     const matchSearch = item.employeeName.includes(searchText) || item.department.includes(searchText);
     const matchStatus = statusFilter === 'all' || item.resultStatus === statusFilter;
     return matchSearch && matchStatus;
-  });
+  }), [declarationResults, searchText, statusFilter]);
 
-  const paginatedData = filteredData.slice((currentPage - 1) * pageSize, currentPage * pageSize);
+  const paginatedData = useMemo(
+    () => filteredData.slice((currentPage - 1) * pageSize, currentPage * pageSize),
+    [filteredData, currentPage, pageSize]
+  );
 
-  const stats = {
-    total: mockDeclarationResults.length,
-    passed: mockDeclarationResults.filter(r => r.resultStatus === 'passed').length,
-    rejected: mockDeclarationResults.filter(r => r.resultStatus === 'rejected').length,
-    processing: mockDeclarationResults.filter(r => r.resultStatus === 'processing').length,
+  const stats = useMemo(() => ({
+    total: declarationResults.length,
+    passed: declarationResults.filter(r => r.resultStatus === 'passed').length,
+    rejected: declarationResults.filter(r => r.resultStatus === 'rejected').length,
+    processing: declarationResults.filter(r => r.resultStatus === 'processing').length,
+  }), [declarationResults]);
+
+  const handleViewDetail = (item: DeclarationResult) => {
+    setSelectedResultId(item.id);
+    setShowDetailModal(true);
   };
 
-  const handleViewDetail = (item: typeof mockDeclarationResults[0]) => {
-    setSelectedResult(item);
-    setShowDetailModal(true);
+  const handleProcessResult = (resultId: string, status: 'passed' | 'rejected') => {
+    processBatchResult(resultId, status);
+  };
+
+  const getBatchName = (declarationId: string) => {
+    const batch = batches.find(b => b.id === declarationId);
+    return batch?.batchName || declarationId;
   };
 
   const columns = [
@@ -72,11 +94,8 @@ function Result() {
       key: 'declarationId',
       title: '所属批次',
       dataIndex: 'declarationId' as const,
-      width: 160,
-      render: (val: string) => {
-        const name = val === 'batch-202405' ? '2024年5月批次' : '2024年6月批次';
-        return <Tag color="blue" size="sm">{name}</Tag>;
-      },
+      width: 180,
+      render: (val: string) => <Tag color="blue" size="sm">{getBatchName(val)}</Tag>,
     },
     {
       key: 'resultStatus',
@@ -100,7 +119,7 @@ function Result() {
       key: 'receipt',
       title: '回执文件',
       width: 120,
-      render: (_: any, record: typeof mockDeclarationResults[0]) => (
+      render: (_: any, record: DeclarationResult) => (
         record.receiptName ? (
           <button
             className="text-blue-600 hover:text-blue-700 text-sm flex items-center gap-1"
@@ -117,13 +136,23 @@ function Result() {
     {
       key: 'action',
       title: '操作',
-      width: 160,
+      width: 200,
       fixed: 'right' as const,
-      render: (_: any, record: typeof mockDeclarationResults[0]) => (
+      render: (_: any, record: DeclarationResult) => (
         <div className="flex items-center gap-1">
           <Button variant="ghost" size="sm" onClick={(e) => { e.stopPropagation(); handleViewDetail(record); }}>
             详情
           </Button>
+          {record.resultStatus === 'processing' && (
+            <>
+              <Button size="sm" onClick={(e) => { e.stopPropagation(); handleProcessResult(record.id, 'passed'); }}>
+                通过
+              </Button>
+              <Button size="sm" variant="outline" className="text-red-600 border-red-200 hover:bg-red-50" onClick={(e) => { e.stopPropagation(); handleProcessResult(record.id, 'rejected'); }}>
+                退回
+              </Button>
+            </>
+          )}
           {record.receiptName && (
             <Button variant="outline" size="sm" icon={<Download size={14} />} onClick={(e) => e.stopPropagation()}>
               回执
@@ -338,7 +367,7 @@ function Result() {
                 <div>
                   <p className="text-xs text-gray-500 mb-1">所属批次</p>
                   <p className="text-sm text-gray-800">
-                    {selectedResult.declarationId === 'batch-202405' ? '2024年5月退休批次' : '2024年6月退休批次'}
+                    {getBatchName(selectedResult.declarationId)}
                   </p>
                 </div>
                 <div>

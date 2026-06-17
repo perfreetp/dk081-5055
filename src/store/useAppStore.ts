@@ -36,11 +36,14 @@ interface AppState {
   addBatch: (batch: RetireBatch) => void;
   createBatch: (data: { batchName: string; month: string; employeeIds: string[] }) => RetireBatch;
   updateBatch: (id: string, updates: Partial<RetireBatch>) => void;
+  updateBatchMembers: (id: string, data: { batchName: string; month: string; employeeIds: string[] }) => void;
   submitBatch: (id: string) => void;
 
   addMaterial: (material: MaterialItem) => void;
   updateMaterial: (id: string, updates: Partial<MaterialItem>) => void;
   uploadMaterial: (id: string, fileName: string) => void;
+  approveMaterial: (id: string) => void;
+  rejectMaterial: (id: string, remark: string) => void;
 
   updateArchiveCheck: (id: string, updates: Partial<ArchiveCheck>) => void;
   startArchiveCheck: (checkId: string) => void;
@@ -49,6 +52,8 @@ interface AppState {
 
   addDeclarationResult: (result: DeclarationResult) => void;
   updateDeclarationResult: (id: string, updates: Partial<DeclarationResult>) => void;
+  generateBatchResults: (batchId: string) => void;
+  processBatchResult: (resultId: string, status: 'passed' | 'rejected') => void;
 
   addImportRecord: (record: ImportRecord) => void;
 }
@@ -139,6 +144,20 @@ export const useAppStore = create<AppState>((set, get) => ({
       ),
     })),
 
+  updateBatchMembers: (id, data) =>
+    set((state) => {
+      const batch = state.batches.find((b) => b.id === id);
+      if (!batch || batch.status !== 'draft') return {};
+
+      return {
+        batches: state.batches.map((b) =>
+          b.id === id
+            ? { ...b, batchName: data.batchName, month: data.month, employeeIds: data.employeeIds, count: data.employeeIds.length }
+            : b
+        ),
+      };
+    }),
+
   submitBatch: (id) =>
     set((state) => {
       const batch = state.batches.find((b) => b.id === id);
@@ -154,20 +173,6 @@ export const useAppStore = create<AppState>((set, get) => ({
         employees: state.employees.map((e) =>
           employeeIds.includes(e.id) ? { ...e, status: 'declaring' as const } : e
         ),
-        declarationResults: [
-          ...state.declarationResults,
-          ...employeeIds.map((empId, idx) => {
-            const emp = state.employees.find((e) => e.id === empId);
-            return {
-              id: `res-${Date.now()}-${idx}`,
-              declarationId: id,
-              employeeId: empId,
-              employeeName: emp?.name || '',
-              department: emp?.department || '',
-              resultStatus: 'processing' as const,
-            };
-          }),
-        ],
       };
     }),
 
@@ -185,6 +190,20 @@ export const useAppStore = create<AppState>((set, get) => ({
     set((state) => ({
       materials: state.materials.map((m) =>
         m.id === id ? { ...m, status: 'uploaded' as const, fileName, uploadTime: new Date().toISOString().replace('T', ' ').slice(0, 19) } : m
+      ),
+    })),
+
+  approveMaterial: (id) =>
+    set((state) => ({
+      materials: state.materials.map((m) =>
+        m.id === id ? { ...m, status: 'approved' as const } : m
+      ),
+    })),
+
+  rejectMaterial: (id, remark) =>
+    set((state) => ({
+      materials: state.materials.map((m) =>
+        m.id === id ? { ...m, status: 'rejected' as const, remark } : m
       ),
     })),
 
@@ -252,6 +271,75 @@ export const useAppStore = create<AppState>((set, get) => ({
         r.id === id ? { ...r, ...updates } : r
       ),
     })),
+
+  generateBatchResults: (batchId) =>
+    set((state) => {
+      const batch = state.batches.find((b) => b.id === batchId);
+      if (!batch || (batch.status !== 'submitted' && batch.status !== 'processing')) return {};
+
+      const existingResults = state.declarationResults.filter((r) => r.declarationId === batchId);
+      const now = new Date().toISOString().replace('T', ' ').slice(0, 19);
+
+      const newResults: DeclarationResult[] = batch.employeeIds
+        .filter((empId) => !existingResults.some((r) => r.employeeId === empId))
+        .map((empId, idx) => {
+          const emp = state.employees.find((e) => e.id === empId);
+          return {
+            id: `res-${batchId}-${Date.now()}-${idx}`,
+            declarationId: batchId,
+            employeeId: empId,
+            employeeName: emp?.name || '',
+            department: emp?.department || '',
+            resultStatus: 'processing' as const,
+          };
+        });
+
+      const allResults = [...existingResults, ...newResults];
+
+      const allProcessed = allResults.length > 0 && allResults.every((r) => r.resultStatus === 'passed' || r.resultStatus === 'rejected');
+      const hasRejected = allResults.some((r) => r.resultStatus === 'rejected');
+      const newBatchStatus: RetireBatch['status'] = allProcessed
+        ? (hasRejected ? 'rejected' : 'completed')
+        : 'processing';
+
+      return {
+        batches: state.batches.map((b) =>
+          b.id === batchId ? { ...b, status: newBatchStatus } : b
+        ),
+        declarationResults: [...state.declarationResults.filter((r) => r.declarationId !== batchId), ...allResults],
+      };
+    }),
+
+  processBatchResult: (resultId, status) =>
+    set((state) => {
+      const result = state.declarationResults.find((r) => r.id === resultId);
+      if (!result) return {};
+
+      const now = new Date().toISOString().replace('T', ' ').slice(0, 19);
+      const receiptName = status === 'passed' ? `退休证_${result.employeeName}.pdf` : undefined;
+      const receiptUrl = status === 'passed' ? `/receipts/${result.employeeId}.pdf` : undefined;
+
+      const updatedResults = state.declarationResults.map((r) =>
+        r.id === resultId
+          ? { ...r, resultStatus: status, resultTime: now, receiptName, receiptUrl }
+          : r
+      );
+
+      const batchResults = updatedResults.filter((r) => r.declarationId === result.declarationId);
+      const allProcessed = batchResults.length > 0 && batchResults.every((r) => r.resultStatus === 'passed' || r.resultStatus === 'rejected');
+      const hasRejected = batchResults.some((r) => r.resultStatus === 'rejected');
+
+      const newBatchStatus: RetireBatch['status'] = allProcessed
+        ? (hasRejected ? 'rejected' : 'completed')
+        : 'processing';
+
+      return {
+        batches: state.batches.map((b) =>
+          b.id === result.declarationId ? { ...b, status: newBatchStatus } : b
+        ),
+        declarationResults: updatedResults,
+      };
+    }),
 
   addImportRecord: (record) =>
     set((state) => ({
