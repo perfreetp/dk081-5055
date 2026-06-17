@@ -9,6 +9,16 @@ import { mockBatches } from '../data/batches';
 import { mockMaterials, mockProofTemplates } from '../data/materials';
 import { mockArchiveChecks, mockDeclarationResults } from '../data/archiveChecks';
 
+export interface ImportRecord {
+  id: string;
+  importTime: string;
+  fileName: string;
+  totalCount: number;
+  addedCount: number;
+  skippedCount: number;
+  skippedIds: string[];
+}
+
 interface AppState {
   employees: Employee[];
   batches: RetireBatch[];
@@ -16,26 +26,31 @@ interface AppState {
   proofTemplates: ProofTemplate[];
   archiveChecks: ArchiveCheck[];
   declarationResults: DeclarationResult[];
+  importRecords: ImportRecord[];
 
   addEmployee: (employee: Employee) => void;
-  addEmployees: (employees: Employee[]) => void;
+  addEmployees: (employees: Employee[]) => { added: number; skipped: number; skippedIds: string[] };
   updateEmployee: (id: string, updates: Partial<Employee>) => void;
   updateEmployeesStatus: (ids: string[], status: Employee['status']) => void;
 
   addBatch: (batch: RetireBatch) => void;
+  createBatch: (data: { batchName: string; month: string; employeeIds: string[] }) => RetireBatch;
   updateBatch: (id: string, updates: Partial<RetireBatch>) => void;
   submitBatch: (id: string) => void;
 
   addMaterial: (material: MaterialItem) => void;
   updateMaterial: (id: string, updates: Partial<MaterialItem>) => void;
+  uploadMaterial: (id: string, fileName: string) => void;
 
   updateArchiveCheck: (id: string, updates: Partial<ArchiveCheck>) => void;
-  startArchiveCheck: (employeeId: string) => void;
+  startArchiveCheck: (checkId: string) => void;
   passArchiveCheck: (id: string) => void;
   rejectArchiveCheck: (id: string, remark: string) => void;
 
   addDeclarationResult: (result: DeclarationResult) => void;
   updateDeclarationResult: (id: string, updates: Partial<DeclarationResult>) => void;
+
+  addImportRecord: (record: ImportRecord) => void;
 }
 
 export const useAppStore = create<AppState>((set, get) => ({
@@ -45,12 +60,43 @@ export const useAppStore = create<AppState>((set, get) => ({
   proofTemplates: [...mockProofTemplates],
   archiveChecks: [...mockArchiveChecks],
   declarationResults: [...mockDeclarationResults],
+  importRecords: [
+    {
+      id: 'imp-001',
+      importTime: '2024-05-20 10:30:00',
+      fileName: '待退职工名单_2024Q2.xlsx',
+      totalCount: 12,
+      addedCount: 12,
+      skippedCount: 0,
+      skippedIds: [],
+    },
+  ],
 
   addEmployee: (employee) =>
     set((state) => ({ employees: [...state.employees, employee] })),
 
-  addEmployees: (newEmployees) =>
-    set((state) => ({ employees: [...state.employees, ...newEmployees] })),
+  addEmployees: (newEmployees) => {
+    const state = get();
+    const existingIdNumbers = new Set(state.employees.map((e) => e.idNumber));
+    const toAdd: Employee[] = [];
+    const skippedIds: string[] = [];
+    for (const emp of newEmployees) {
+      if (existingIdNumbers.has(emp.idNumber)) {
+        skippedIds.push(emp.idNumber);
+      } else {
+        toAdd.push(emp);
+        existingIdNumbers.add(emp.idNumber);
+      }
+    }
+    if (toAdd.length > 0) {
+      set({ employees: [...state.employees, ...toAdd] });
+    }
+    return {
+      added: toAdd.length,
+      skipped: skippedIds.length,
+      skippedIds,
+    };
+  },
 
   updateEmployee: (id, updates) =>
     set((state) => ({
@@ -68,6 +114,23 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   addBatch: (batch) =>
     set((state) => ({ batches: [...state.batches, batch] })),
+
+  createBatch: ({ batchName, month, employeeIds }) => {
+    const now = new Date().toISOString().replace('T', ' ').slice(0, 19);
+    const newBatch: RetireBatch = {
+      id: `batch-${Date.now()}`,
+      batchName,
+      month,
+      count: employeeIds.length,
+      status: 'draft',
+      createTime: now,
+      employeeIds,
+      submitTime: undefined,
+      auditor: undefined,
+    };
+    set((state) => ({ batches: [...state.batches, newBatch] }));
+    return newBatch;
+  },
 
   updateBatch: (id, updates) =>
     set((state) => ({
@@ -118,6 +181,13 @@ export const useAppStore = create<AppState>((set, get) => ({
       ),
     })),
 
+  uploadMaterial: (id, fileName) =>
+    set((state) => ({
+      materials: state.materials.map((m) =>
+        m.id === id ? { ...m, status: 'uploaded' as const, fileName, uploadTime: new Date().toISOString().replace('T', ' ').slice(0, 19) } : m
+      ),
+    })),
+
   updateArchiveCheck: (id, updates) =>
     set((state) => ({
       archiveChecks: state.archiveChecks.map((c) =>
@@ -125,17 +195,17 @@ export const useAppStore = create<AppState>((set, get) => ({
       ),
     })),
 
-  startArchiveCheck: (employeeId) =>
+  startArchiveCheck: (checkId) =>
     set((state) => {
-      const check = state.archiveChecks.find((c) => c.employeeId === employeeId);
-      if (!check || check.status !== 'pending') return {};
+      const check = state.archiveChecks.find((c) => c.id === checkId);
+      if (!check || (check.status !== 'pending' && check.status !== 'rejected')) return {};
 
       return {
         archiveChecks: state.archiveChecks.map((c) =>
-          c.employeeId === employeeId ? { ...c, status: 'checking' as const, checker: '人事专员-李娜' } : c
+          c.id === checkId ? { ...c, status: 'checking' as const, checker: '人事专员-李娜' } : c
         ),
         employees: state.employees.map((e) =>
-          e.id === employeeId ? { ...e, status: 'checking' as const } : e
+          e.id === check.employeeId ? { ...e, status: 'checking' as const } : e
         ),
       };
     }),
@@ -143,7 +213,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   passArchiveCheck: (id) =>
     set((state) => {
       const check = state.archiveChecks.find((c) => c.id === id);
-      if (!check) return {};
+      if (!check || check.status !== 'checking') return {};
 
       const now = new Date().toISOString().replace('T', ' ').slice(0, 19);
 
@@ -160,7 +230,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   rejectArchiveCheck: (id, remark) =>
     set((state) => {
       const check = state.archiveChecks.find((c) => c.id === id);
-      if (!check) return {};
+      if (!check || check.status !== 'checking') return {};
 
       const now = new Date().toISOString().replace('T', ' ').slice(0, 19);
 
@@ -181,6 +251,11 @@ export const useAppStore = create<AppState>((set, get) => ({
       declarationResults: state.declarationResults.map((r) =>
         r.id === id ? { ...r, ...updates } : r
       ),
+    })),
+
+  addImportRecord: (record) =>
+    set((state) => ({
+      importRecords: [record, ...state.importRecords].slice(0, 10),
     })),
 }));
 

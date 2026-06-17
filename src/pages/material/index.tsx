@@ -21,6 +21,7 @@ function Material() {
   const materials = useAppStore((state) => state.materials);
   const proofTemplates = useAppStore((state) => state.proofTemplates);
   const employees = useAppStore((state) => state.employees);
+  const uploadMaterial = useAppStore((state) => state.uploadMaterial);
 
   const [activeTab, setActiveTab] = useState('list');
   const [searchText, setSearchText] = useState('');
@@ -29,7 +30,9 @@ function Material() {
   const [currentPage, setCurrentPage] = useState(1);
   const [showUploadModal, setShowUploadModal] = useState(false);
   const [showTemplateModal, setShowTemplateModal] = useState(false);
+  const [showDetailModal, setShowDetailModal] = useState(false);
   const [selectedTemplate, setSelectedTemplate] = useState<ProofTemplate | null>(null);
+  const [selectedEmployeeId, setSelectedEmployeeId] = useState<string | null>(null);
   const pageSize = 10;
 
   const employeeMaterialMap = useMemo(() => employees.reduce((acc, emp) => {
@@ -93,6 +96,21 @@ function Material() {
   const handleViewTemplate = (tpl: ProofTemplate) => {
     setSelectedTemplate(tpl);
     setShowTemplateModal(true);
+  };
+
+  const selectedEmployee = useMemo(
+    () => employeeMaterialMap.find((e: any) => e.id === selectedEmployeeId),
+    [employeeMaterialMap, selectedEmployeeId]
+  );
+
+  const handleViewEmployeeDetail = (item: any) => {
+    setSelectedEmployeeId(item.id);
+    setShowDetailModal(true);
+  };
+
+  const handleUploadMaterial = (materialId: string, materialName: string) => {
+    const fileName = `${materialName}_${Date.now()}.pdf`;
+    uploadMaterial(materialId, fileName);
   };
 
   const columns = [
@@ -174,7 +192,7 @@ function Material() {
       fixed: 'right' as const,
       render: (_: any, record: any) => (
         <div className="flex items-center gap-1">
-          <Button variant="ghost" size="sm">查看</Button>
+          <Button variant="ghost" size="sm" onClick={(e) => { e.stopPropagation(); handleViewEmployeeDetail(record); }}>查看</Button>
           <Button variant="outline" size="sm" icon={<Bell size={14} />}>催办</Button>
           <Button variant="ghost" size="sm">生成证明</Button>
         </div>
@@ -398,6 +416,121 @@ function Material() {
             </div>
           </div>
         </div>
+      </Modal>
+
+      {/* 个人材料明细弹窗 */}
+      <Modal
+        open={showDetailModal}
+        onClose={() => setShowDetailModal(false)}
+        title="个人材料明细"
+        width={720}
+        footer={
+          <>
+            <Button variant="outline" onClick={() => setShowDetailModal(false)}>关闭</Button>
+          </>
+        }
+      >
+        {selectedEmployee && (
+          <div className="space-y-5">
+            <div className="flex items-center justify-between pb-4 border-b border-gray-100">
+              <div className="flex items-center gap-3">
+                <div className="w-12 h-12 rounded-full bg-blue-100 text-blue-600 flex items-center justify-center text-xl font-medium">
+                  {selectedEmployee.name.charAt(0)}
+                </div>
+                <div>
+                  <h3 className="text-lg font-semibold text-gray-900">{selectedEmployee.name}</h3>
+                  <p className="text-sm text-gray-500">{selectedEmployee.department} · {selectedEmployee.position}</p>
+                </div>
+              </div>
+              <div className="text-right">
+                <div className="flex items-center gap-4 text-sm">
+                  <div>
+                    <span className="text-gray-400">进度</span>
+                    <span className="ml-2 font-semibold text-gray-800">
+                      {selectedEmployee.uploadedCount}/{selectedEmployee.totalCount}
+                    </span>
+                  </div>
+                  <div>
+                    <span className="text-gray-400">已退回</span>
+                    <span className="ml-2 font-semibold text-red-600">{selectedEmployee.rejectedCount}</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div className="space-y-3">
+              {selectedEmployee.materials.map((m: any) => (
+                <div
+                  key={m.id}
+                  className={`p-4 rounded-lg border ${
+                    m.status === 'rejected'
+                      ? 'border-red-200 bg-red-50/40'
+                      : m.status === 'approved'
+                      ? 'border-emerald-200 bg-emerald-50/40'
+                      : 'border-gray-200 bg-white'
+                  }`}
+                >
+                  <div className="flex items-start justify-between gap-4">
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2 mb-1">
+                        <h4 className="font-medium text-gray-800">{m.name}</h4>
+                        <Tag color={m.type === 'id' ? 'blue' : m.type === 'proof' ? 'purple' : m.type === 'certificate' ? 'orange' : 'gray'} size="sm">
+                          {materialTypeMap[m.type]}
+                        </Tag>
+                        {m.required && <Tag color="red" size="sm">必填</Tag>}
+                        <StatusBadge status={materialStatusMap[m.status]} size="sm" />
+                      </div>
+                      {m.fileName && (
+                        <p className="text-xs text-gray-500 mt-1 flex items-center gap-1">
+                          <FileText size={12} />
+                          <span className="font-mono">{m.fileName}</span>
+                          {m.uploadTime && (
+                            <span className="text-gray-400 ml-2">上传于 {formatDate(m.uploadTime, 'yyyy-MM-dd HH:mm')}</span>
+                          )}
+                        </p>
+                      )}
+                      {m.status === 'rejected' && m.remark && (
+                        <div className="mt-2 p-2 bg-red-50 border border-red-100 rounded text-xs text-red-700 flex items-start gap-1">
+                          <XCircle size={14} className="flex-shrink-0 mt-0.5 text-red-500" />
+                          <div>
+                            <span className="font-medium">退回原因：</span>
+                            {m.remark}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                    <div className="flex-shrink-0">
+                      {m.status === 'pending' && (
+                        <Button
+                          size="sm"
+                          onClick={() => handleUploadMaterial(m.id, m.name)}
+                          icon={<Upload size={14} />}
+                        >
+                          模拟上传
+                        </Button>
+                      )}
+                      {m.status === 'rejected' && (
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={() => handleUploadMaterial(m.id, m.name)}
+                          icon={<Upload size={14} />}
+                        >
+                          重新上传
+                        </Button>
+                      )}
+                      {(m.status === 'uploaded' || m.status === 'approved') && (
+                        <Button variant="ghost" size="sm" icon={<Eye size={14} />}>
+                          预览
+                        </Button>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
       </Modal>
     </div>
   );

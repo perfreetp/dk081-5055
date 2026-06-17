@@ -1,6 +1,6 @@
 
 import React, { useState, useMemo } from 'react';
-import { Search, Plus, Upload, Download, Filter, MoreHorizontal, Bell, Calendar, User, CheckCircle } from 'lucide-react';
+import { Search, Plus, Upload, Download, Filter, MoreHorizontal, Bell, Calendar, User, CheckCircle, XCircle, History, FileQuestion } from 'lucide-react';
 import PageHeader from '@/components/common/PageHeader';
 import Card from '@/components/ui/Card';
 import Button from '@/components/ui/Button';
@@ -12,6 +12,7 @@ import StatusBadge from '@/components/ui/StatusBadge';
 import Tag from '@/components/ui/Tag';
 import Modal from '@/components/ui/Modal';
 import { useAppStore } from '@/store/useAppStore';
+import type { ImportRecord } from '@/store/useAppStore';
 import type { Employee } from '@/types/employee';
 import { employeeStatusMap, retireTypeMap, genderMap } from '@/types/employee';
 import { formatDate, calcAge, formatIdNumber } from '@/utils/date';
@@ -67,6 +68,8 @@ const sampleImportData: Employee[] = [
 function RetireList() {
   const employees = useAppStore((state) => state.employees);
   const addEmployees = useAppStore((state) => state.addEmployees);
+  const importRecords = useAppStore((state) => state.importRecords);
+  const addImportRecord = useAppStore((state) => state.addImportRecord);
 
   const [searchText, setSearchText] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
@@ -75,8 +78,10 @@ function RetireList() {
   const [selectedKeys, setSelectedKeys] = useState<string[]>([]);
   const [showImportModal, setShowImportModal] = useState(false);
   const [showDetailModal, setShowDetailModal] = useState(false);
+  const [showResultModal, setShowResultModal] = useState(false);
+  const [showHistoryModal, setShowHistoryModal] = useState(false);
   const [selectedEmployee, setSelectedEmployee] = useState<Employee | null>(null);
-  const [importSuccess, setImportSuccess] = useState(false);
+  const [lastImportResult, setLastImportResult] = useState<{ added: number; skipped: number; skippedIds: string[] } | null>(null);
   const pageSize = 10;
 
   const filteredData = useMemo(() => employees.filter((emp) => {
@@ -205,11 +210,21 @@ function RetireList() {
       ...emp,
       id: `emp-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
     }));
-    addEmployees(newEmployees);
+    const result = addEmployees(newEmployees);
+    const record: ImportRecord = {
+      id: `imp-${Date.now()}`,
+      importTime: new Date().toISOString().replace('T', ' ').slice(0, 19),
+      fileName: '待退职工名单.xlsx',
+      totalCount: newEmployees.length,
+      addedCount: result.added,
+      skippedCount: result.skipped,
+      skippedIds: result.skippedIds,
+    };
+    addImportRecord(record);
+    setLastImportResult(result);
     setShowImportModal(false);
+    setShowResultModal(true);
     setCurrentPage(1);
-    setImportSuccess(true);
-    setTimeout(() => setImportSuccess(false), 3000);
   };
 
   return (
@@ -220,6 +235,7 @@ function RetireList() {
         extra={
           <div className="flex items-center gap-2">
             <Button variant="outline" icon={<Download size={16} />}>导出</Button>
+            <Button variant="outline" icon={<History size={16} />} onClick={() => setShowHistoryModal(true)}>导入历史</Button>
             <Button variant="outline" icon={<Upload size={16} />} onClick={() => setShowImportModal(true)}>批量导入</Button>
             <Button icon={<Plus size={16} />}>新增人员</Button>
           </div>
@@ -504,6 +520,120 @@ function RetireList() {
             <a href="#" className="text-blue-600 hover:text-blue-700">下载导入模板</a>
             <span className="text-gray-400 text-xs">上次导入：2024-05-20</span>
           </div>
+        </div>
+      </Modal>
+
+      {/* 导入结果弹窗 */}
+      <Modal
+        open={showResultModal}
+        onClose={() => setShowResultModal(false)}
+        title="导入完成"
+        width={520}
+        footer={
+          <>
+            <Button variant="outline" onClick={() => setShowResultModal(false)}>关闭</Button>
+            <Button onClick={() => { setShowResultModal(false); setShowHistoryModal(true); }}>查看历史记录</Button>
+          </>
+        }
+      >
+        {lastImportResult && (
+          <div className="space-y-5">
+            <div className="flex items-center gap-4 justify-center py-4">
+              {lastImportResult.added > 0 && (
+                <div className="text-center">
+                  <div className="w-14 h-14 mx-auto rounded-full bg-emerald-50 flex items-center justify-center mb-2">
+                    <CheckCircle size={28} className="text-emerald-500" />
+                  </div>
+                  <p className="text-sm text-gray-500">成功新增</p>
+                  <p className="text-2xl font-bold text-emerald-600">{lastImportResult.added} 人</p>
+                </div>
+              )}
+              {lastImportResult.skipped > 0 && (
+                <div className="text-center">
+                  <div className="w-14 h-14 mx-auto rounded-full bg-amber-50 flex items-center justify-center mb-2">
+                    <FileQuestion size={28} className="text-amber-500" />
+                  </div>
+                  <p className="text-sm text-gray-500">跳过重复</p>
+                  <p className="text-2xl font-bold text-amber-600">{lastImportResult.skipped} 人</p>
+                </div>
+              )}
+              <div className="text-center">
+                <div className="w-14 h-14 mx-auto rounded-full bg-blue-50 flex items-center justify-center mb-2">
+                  <User size={28} className="text-blue-500" />
+                </div>
+                <p className="text-sm text-gray-500">本次共导入</p>
+                <p className="text-2xl font-bold text-blue-600">{lastImportResult.added + lastImportResult.skipped} 人</p>
+              </div>
+            </div>
+
+            {lastImportResult.skippedIds.length > 0 && (
+              <div className="p-3 bg-amber-50 border border-amber-100 rounded-lg">
+                <p className="text-sm font-medium text-amber-800 mb-2 flex items-center gap-1">
+                  <XCircle size={14} /> 以下身份证重复已跳过：
+                </p>
+                <div className="max-h-28 overflow-y-auto space-y-1">
+                  {lastImportResult.skippedIds.map((id, idx) => (
+                    <p key={idx} className="text-xs text-amber-700 font-mono">
+                      {idx + 1}. {formatIdNumber(id)}
+                    </p>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+      </Modal>
+
+      {/* 导入历史弹窗 */}
+      <Modal
+        open={showHistoryModal}
+        onClose={() => setShowHistoryModal(false)}
+        title="导入历史记录"
+        width={620}
+        footer={
+          <>
+            <Button variant="outline" onClick={() => setShowHistoryModal(false)}>关闭</Button>
+          </>
+        }
+      >
+        <div className="space-y-3">
+          {importRecords.length === 0 ? (
+            <div className="p-10 text-center text-gray-400">
+              暂无导入记录
+            </div>
+          ) : (
+            importRecords.map((record) => (
+              <div key={record.id} className="p-4 border border-gray-200 rounded-lg hover:border-blue-200 hover:bg-blue-50/30 transition-colors">
+                <div className="flex items-start justify-between mb-2">
+                  <div className="flex items-center gap-2">
+                    <div className="w-9 h-9 rounded-lg bg-blue-50 flex items-center justify-center text-blue-600">
+                      <Upload size={18} />
+                    </div>
+                    <div>
+                      <p className="font-medium text-gray-800">{record.fileName}</p>
+                      <p className="text-xs text-gray-400">{formatDate(record.importTime, 'yyyy-MM-dd HH:mm')}</p>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-3 text-sm">
+                    <span className="text-emerald-600 font-medium">新增 {record.addedCount}</span>
+                    <span className="text-gray-300">|</span>
+                    <span className="text-amber-600 font-medium">跳过 {record.skippedCount}</span>
+                    <span className="text-gray-300">|</span>
+                    <span className="text-gray-600">共 {record.totalCount}</span>
+                  </div>
+                </div>
+                {record.skippedIds.length > 0 && (
+                  <div className="mt-2 pt-2 border-t border-gray-100 flex items-center gap-2 text-xs text-gray-400">
+                    <span>已跳过 {record.skippedIds.length} 条重复记录：</span>
+                    <span className="font-mono">
+                      {record.skippedIds.slice(0, 3).map(id => formatIdNumber(id)).join('，')}
+                      {record.skippedIds.length > 3 && ` 等 ${record.skippedIds.length} 条`}
+                    </span>
+                  </div>
+                )}
+              </div>
+            ))
+          )}
         </div>
       </Modal>
     </div>

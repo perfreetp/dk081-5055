@@ -19,13 +19,18 @@ function Declaration() {
   const batches = useAppStore((state) => state.batches);
   const employees = useAppStore((state) => state.employees);
   const submitBatch = useAppStore((state) => state.submitBatch);
+  const createBatch = useAppStore((state) => state.createBatch);
 
   const [searchText, setSearchText] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
   const [showDetailModal, setShowDetailModal] = useState(false);
   const [selectedBatchId, setSelectedBatchId] = useState<string | null>(null);
   const [showSubmitModal, setShowSubmitModal] = useState(false);
+  const [showCreateModal, setShowCreateModal] = useState(false);
   const [activeTab, setActiveTab] = useState('info');
+  const [newBatchName, setNewBatchName] = useState('');
+  const [newBatchMonth, setNewBatchMonth] = useState('2024-09');
+  const [selectedNewEmployeeIds, setSelectedNewEmployeeIds] = useState<string[]>([]);
 
   const selectedBatch = useMemo(
     () => batches.find((b) => b.id === selectedBatchId) || null,
@@ -80,6 +85,47 @@ function Declaration() {
 
   const getBatchCount = (batch: RetireBatch) => batch.employeeIds.length;
 
+  const pendingEmployees = useMemo(
+    () => employees.filter(e => ['pending', 'checking', 'material'].includes(e.status)),
+    [employees]
+  );
+
+  const toggleNewEmployee = (id: string) => {
+    setSelectedNewEmployeeIds(prev =>
+      prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]
+    );
+  };
+
+  const toggleAllNewEmployees = () => {
+    if (selectedNewEmployeeIds.length === pendingEmployees.length) {
+      setSelectedNewEmployeeIds([]);
+    } else {
+      setSelectedNewEmployeeIds(pendingEmployees.map(e => e.id));
+    }
+  };
+
+  const handleCreateBatch = () => {
+    if (!newBatchName.trim() || selectedNewEmployeeIds.length === 0) return;
+    const newBatch = createBatch({
+      batchName: newBatchName.trim(),
+      month: newBatchMonth,
+      employeeIds: selectedNewEmployeeIds,
+    });
+    setShowCreateModal(false);
+    setSelectedBatchId(newBatch.id);
+    setShowDetailModal(true);
+  };
+
+  const months = [];
+  const nowDate = new Date();
+  for (let i = 0; i < 6; i++) {
+    const d = new Date(nowDate.getFullYear(), nowDate.getMonth() + i, 1);
+    months.push({
+      value: `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`,
+      label: `${d.getFullYear()}年${d.getMonth() + 1}月`,
+    });
+  }
+
   return (
     <div className="space-y-4">
       <PageHeader
@@ -88,7 +134,11 @@ function Declaration() {
         extra={
           <div className="flex items-center gap-2">
             <Button variant="outline" icon={<Download size={16} />}>导出申报单</Button>
-            <Button icon={<Plus size={16} />} onClick={() => setShowSubmitModal(true)}>
+            <Button icon={<Plus size={16} />} onClick={() => {
+              setNewBatchName('');
+              setSelectedNewEmployeeIds([]);
+              setShowCreateModal(true);
+            }}>
               新建申报批次
             </Button>
           </div>
@@ -481,6 +531,140 @@ function Declaration() {
           <div className="text-sm text-gray-500">
             <p>⚠️ 提交后将无法直接修改，如需修改请联系审核部门退回。</p>
           </div>
+        </div>
+      </Modal>
+
+      {/* 新建批次弹窗 */}
+      <Modal
+        open={showCreateModal}
+        onClose={() => setShowCreateModal(false)}
+        title="新建申报批次"
+        width={720}
+        footer={
+          <>
+            <Button variant="outline" onClick={() => setShowCreateModal(false)}>取消</Button>
+            <Button
+              onClick={handleCreateBatch}
+              disabled={!newBatchName.trim() || selectedNewEmployeeIds.length === 0}
+            >
+              保存为草稿
+            </Button>
+          </>
+        }
+      >
+        <div className="space-y-5">
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1.5">批次名称 <span className="text-red-500">*</span></label>
+              <Input
+                placeholder="如：2024年9月退休批次"
+                value={newBatchName}
+                onChange={(e) => setNewBatchName(e.target.value)}
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1.5">退休月份 <span className="text-red-500">*</span></label>
+              <Select
+                value={newBatchMonth}
+                onChange={(e) => setNewBatchMonth(e.target.value)}
+                options={months.map(m => ({ value: m.value, label: m.label }))}
+              />
+            </div>
+          </div>
+
+          <div>
+            <div className="flex items-center justify-between mb-2">
+              <label className="block text-sm font-medium text-gray-700">
+                选择人员 <span className="text-red-500">*</span>
+                <span className="ml-2 text-xs text-gray-400">
+                  已选 {selectedNewEmployeeIds.length} / {pendingEmployees.length} 人
+                </span>
+              </label>
+              <button
+                type="button"
+                className="text-xs text-blue-600 hover:text-blue-700"
+                onClick={toggleAllNewEmployees}
+              >
+                {selectedNewEmployeeIds.length === pendingEmployees.length ? '取消全选' : '全选'}
+              </button>
+            </div>
+            <div className="border border-gray-200 rounded-lg overflow-hidden">
+              <div className="max-h-80 overflow-y-auto">
+                {pendingEmployees.length === 0 ? (
+                  <div className="p-10 text-center text-gray-400">
+                    暂无可办理人员
+                  </div>
+                ) : (
+                  <table className="w-full text-sm">
+                    <thead className="bg-gray-50 sticky top-0">
+                      <tr>
+                        <th className="px-3 py-2 text-left w-10">
+                          <input
+                            type="checkbox"
+                            checked={selectedNewEmployeeIds.length === pendingEmployees.length}
+                            onChange={toggleAllNewEmployees}
+                            className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                          />
+                        </th>
+                        <th className="px-3 py-2 text-left font-medium text-gray-600">姓名</th>
+                        <th className="px-3 py-2 text-left font-medium text-gray-600">部门</th>
+                        <th className="px-3 py-2 text-left font-medium text-gray-600">岗位</th>
+                        <th className="px-3 py-2 text-left font-medium text-gray-600">类型</th>
+                        <th className="px-3 py-2 text-left font-medium text-gray-600">状态</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {pendingEmployees.map((emp) => (
+                        <tr
+                          key={emp.id}
+                          className={`border-t border-gray-100 cursor-pointer hover:bg-blue-50 transition-colors ${
+                            selectedNewEmployeeIds.includes(emp.id) ? 'bg-blue-50' : ''
+                          }`}
+                          onClick={() => toggleNewEmployee(emp.id)}
+                        >
+                          <td className="px-3 py-2">
+                            <input
+                              type="checkbox"
+                              checked={selectedNewEmployeeIds.includes(emp.id)}
+                              onChange={() => toggleNewEmployee(emp.id)}
+                              className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                            />
+                          </td>
+                          <td className="px-3 py-2">
+                            <div className="flex items-center gap-2">
+                              <div className="w-7 h-7 rounded-full bg-blue-100 text-blue-600 flex items-center justify-center text-xs font-medium">
+                                {emp.name.charAt(0)}
+                              </div>
+                              <span className="font-medium text-gray-800">{emp.name}</span>
+                            </div>
+                          </td>
+                          <td className="px-3 py-2 text-gray-600">{emp.department}</td>
+                          <td className="px-3 py-2 text-gray-600">{emp.position}</td>
+                          <td className="px-3 py-2">
+                            <Tag color={emp.retireType === 'normal' ? 'blue' : 'orange'} size="sm">
+                              {retireTypeMap[emp.retireType]}
+                            </Tag>
+                          </td>
+                          <td className="px-3 py-2">
+                            <StatusBadge status={employeeStatusMap[emp.status]} size="sm" />
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                )}
+              </div>
+            </div>
+          </div>
+
+          {selectedNewEmployeeIds.length > 0 && (
+            <div className="p-3 bg-blue-50 rounded-lg border border-blue-100 flex items-center justify-between">
+              <div className="text-sm text-blue-700">
+                <span className="font-medium">已选 {selectedNewEmployeeIds.length} 人</span>
+                <span className="text-blue-600">，批次保存后可随时修改和提交</span>
+              </div>
+            </div>
+          )}
         </div>
       </Modal>
     </div>
